@@ -10,7 +10,14 @@ final class POStore: ObservableObject {
     @Published var isLoadingHistory = false
     @Published var errorMessage: String?
 
-    private let cloudKit = CloudKitManager.shared
+    private let defaults = UserDefaults.standard
+    private let historyKey = "POStore.history"
+    private let countsKey = "POStore.jobCounts"
+
+    private var jobCounts: [String: Int] {
+        get { defaults.dictionary(forKey: countsKey) as? [String: Int] ?? [:] }
+        set { defaults.set(newValue, forKey: countsKey) }
+    }
 
     var canGenerate: Bool {
         !jobNumber.trimmingCharacters(in: .whitespaces).isEmpty
@@ -24,29 +31,44 @@ final class POStore: ObservableObject {
         errorMessage = nil
         defer { isGenerating = false }
 
-        do {
-            let po = try await cloudKit.generatePurchaseOrder(
-                jobNumber: jobNumber.trimmingCharacters(in: .whitespaces),
-                customerName: customerName.trimmingCharacters(in: .whitespaces)
-            )
-            lastGenerated = po
-            history.insert(po, at: 0)
-            jobNumber = ""
-            customerName = ""
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        let trimmedJob = jobNumber.trimmingCharacters(in: .whitespaces)
+        let trimmedCustomer = customerName.trimmingCharacters(in: .whitespaces)
+        let key = trimmedJob.lowercased()
+        let sequence = (jobCounts[key] ?? 0) + 1
+
+        let po = PurchaseOrder(
+            id: UUID().uuidString,
+            poNumber: PONumberFormatter.poNumber(jobNumber: trimmedJob, customerName: trimmedCustomer, sequence: sequence),
+            jobNumber: trimmedJob,
+            customerName: trimmedCustomer,
+            sequence: sequence,
+            createdAt: Date()
+        )
+
+        jobCounts[key] = sequence
+        history.insert(po, at: 0)
+        saveHistory()
+        lastGenerated = po
+        jobNumber = ""
+        customerName = ""
     }
 
     func loadHistory() async {
         isLoadingHistory = true
         errorMessage = nil
         defer { isLoadingHistory = false }
+        history = loadHistoryFromDisk()
+    }
 
-        do {
-            history = try await cloudKit.fetchHistory()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+    private func saveHistory() {
+        guard let data = try? JSONEncoder().encode(history) else { return }
+        defaults.set(data, forKey: historyKey)
+    }
+
+    private func loadHistoryFromDisk() -> [PurchaseOrder] {
+        guard let data = defaults.data(forKey: historyKey),
+              let decoded = try? JSONDecoder().decode([PurchaseOrder].self, from: data)
+        else { return [] }
+        return decoded
     }
 }
