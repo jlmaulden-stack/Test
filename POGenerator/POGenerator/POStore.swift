@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 @MainActor
 final class POStore: ObservableObject {
@@ -25,7 +26,7 @@ final class POStore: ObservableObject {
             && !PONumberFormatter.jobCore(from: jobNumber).isEmpty
     }
 
-    func generate() async {
+    func generate(details: String, photo: UIImage?, createdBy employee: Employee) async {
         guard canGenerate else { return }
         isGenerating = true
         errorMessage = nil
@@ -35,14 +36,23 @@ final class POStore: ObservableObject {
         let trimmedCustomer = customerName.trimmingCharacters(in: .whitespaces)
         let key = trimmedJob.lowercased()
         let sequence = (jobCounts[key] ?? 0) + 1
+        let id = UUID().uuidString
+        let photoFileName = photo.flatMap { PhotoStore.save($0, forPOID: id) }
 
         let po = PurchaseOrder(
-            id: UUID().uuidString,
+            id: id,
             poNumber: PONumberFormatter.poNumber(jobNumber: trimmedJob, customerName: trimmedCustomer, sequence: sequence),
             jobNumber: trimmedJob,
             customerName: trimmedCustomer,
             sequence: sequence,
-            createdAt: Date()
+            createdAt: Date(),
+            details: details.trimmingCharacters(in: .whitespacesAndNewlines),
+            photoFileName: photoFileName,
+            createdByName: employee.name,
+            createdByPhone: employee.phoneNumber,
+            isFulfilled: false,
+            fulfilledByName: nil,
+            fulfilledAt: nil
         )
 
         jobCounts[key] = sequence
@@ -51,6 +61,17 @@ final class POStore: ObservableObject {
         lastGenerated = po
         jobNumber = ""
         customerName = ""
+    }
+
+    func setFulfilled(_ fulfilled: Bool, for po: PurchaseOrder, by employee: Employee?) {
+        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
+        history[index].isFulfilled = fulfilled
+        history[index].fulfilledByName = fulfilled ? employee?.name : nil
+        history[index].fulfilledAt = fulfilled ? Date() : nil
+        if lastGenerated?.id == po.id {
+            lastGenerated = history[index]
+        }
+        saveHistory()
     }
 
     func loadHistory() async {

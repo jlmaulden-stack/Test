@@ -22,18 +22,31 @@ struct HistoryView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List(store.history) { po in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(po.poNumber)
-                                .font(.system(.body, design: .monospaced))
-                                .bold()
-                            Text("\(po.customerName) · Job \(po.jobNumber)")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            Text(po.createdAt, format: .dateTime.month().day().hour().minute())
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        NavigationLink(value: po) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(po.poNumber)
+                                        .font(.system(.body, design: .monospaced))
+                                        .bold()
+                                    if po.isFulfilled {
+                                        Spacer()
+                                        Label("Fulfilled", systemImage: "checkmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                    }
+                                }
+                                Text("\(po.customerName) · Job \(po.jobNumber)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                Text("By \(po.createdByName) · \(po.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 2)
                         }
-                        .padding(.vertical, 2)
+                    }
+                    .navigationDestination(for: PurchaseOrder.self) { po in
+                        PODetailView(po: po)
                     }
                     .refreshable {
                         await store.loadHistory()
@@ -51,4 +64,5 @@ struct HistoryView: View {
 #Preview {
     HistoryView()
         .environmentObject(POStore())
+        .environmentObject(AuthStore())
 }

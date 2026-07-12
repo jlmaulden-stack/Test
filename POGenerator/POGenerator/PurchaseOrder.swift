@@ -7,4 +7,11 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     let customerName: String
     let sequence: Int
     let createdAt: Date
+    let details: String
+    let photoFileName: String?
+    let createdByName: String
+    let createdByPhone: String
+    var isFulfilled: Bool
+    var fulfilledByName: String?
+    var fulfilledAt: Date?
 }
