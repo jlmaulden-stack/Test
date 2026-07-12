@@ -24,6 +24,7 @@ struct AccountView: View {
                             authStore.logOut()
                         }
                     }
+                    .listRowBackground(Theme.panel)
                 }
 
                 if authStore.currentUser?.isManager == true {
@@ -44,6 +45,7 @@ struct AccountView: View {
                                     resetPasswordText = ""
                                 }
                                 .font(.footnote)
+                                .buttonStyle(.borderless)
                             }
                         }
                         .onDelete { indexSet in
@@ -51,6 +53,7 @@ struct AccountView: View {
                                 authStore.removeAccount(authStore.accounts[index], requestedBy: authStore.currentUser)
                             }
                         }
+                        .listRowBackground(Theme.panel)
                     }
 
                     Section("Add Account") {
@@ -64,12 +67,14 @@ struct AccountView: View {
                         }
                         .disabled(newUsername.trimmingCharacters(in: .whitespaces).isEmpty || newPassword.isEmpty)
                     }
+                    .listRowBackground(Theme.panel)
                 } else {
                     Section {
                         Text("Contact your manager to add accounts or reset your password.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
+                    .listRowBackground(Theme.panel)
                 }
 
                 if let errorMessage {
@@ -78,9 +83,11 @@ struct AccountView: View {
                             .foregroundColor(.red)
                             .font(.footnote)
                     }
+                    .listRowBackground(Theme.panel)
                 }
             }
-            .navigationTitle("Account")
+            .industrialForm()
+            .navigationTitle("ACCOUNT")
             .alert(
                 "Reset Password",
                 isPresented: Binding(

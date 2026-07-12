@@ -15,7 +15,9 @@ struct PODetailView: View {
                 Text(current.poNumber)
                     .font(.system(.title2, design: .monospaced))
                     .bold()
+                    .foregroundColor(Theme.accent)
             }
+            .listRowBackground(Theme.panel)
 
             Section("Job") {
                 LabeledContent("Job Number", value: current.jobNumber)
@@ -23,11 +25,13 @@ struct PODetailView: View {
                 LabeledContent("Created By", value: current.createdByName)
                 LabeledContent("Created", value: current.createdAt.formatted(date: .abbreviated, time: .shortened))
             }
+            .listRowBackground(Theme.panel)
 
             if !current.details.isEmpty {
                 Section("Description") {
                     Text(current.details)
                 }
+                .listRowBackground(Theme.panel)
             }
 
             if let fileName = current.photoFileName, let image = PhotoStore.loadImage(fileName: fileName) {
@@ -37,6 +41,7 @@ struct PODetailView: View {
                         .scaledToFit()
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
+                .listRowBackground(Theme.panel)
             }
 
             Section("Fulfillment") {
@@ -54,8 +59,10 @@ struct PODetailView: View {
                     }
                 }
             }
+            .listRowBackground(Theme.panel)
         }
-        .navigationTitle("PO Details")
+        .industrialForm()
+        .navigationTitle("PO DETAILS")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

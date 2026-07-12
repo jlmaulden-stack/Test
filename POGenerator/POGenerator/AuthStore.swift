@@ -89,6 +89,8 @@ final class AuthStore: ObservableObject {
 
     func removeAccount(_ account: Account, requestedBy manager: Account?) {
         guard manager?.isManager == true else { return }
+        // Never delete the last manager, or no one could manage accounts again.
+        if account.isManager && accounts.filter(\.isManager).count == 1 { return }
         accounts.removeAll { $0.id == account.id }
         saveAccounts()
         if currentUser?.id == account.id {

@@ -25,6 +25,7 @@ struct LoginView: View {
                         }
                         .disabled(username.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty)
                     }
+                    .listRowBackground(Theme.panel)
                 } else {
                     Section("Log In") {
                         TextField("Username", text: $username)
@@ -36,12 +37,14 @@ struct LoginView: View {
                         }
                         .disabled(username.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty)
                     }
+                    .listRowBackground(Theme.panel)
 
                     Section {
                         Text("Forgot your password? Ask your manager to reset it from the Account tab.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
+                    .listRowBackground(Theme.panel)
                 }
 
                 if let errorMessage {
@@ -50,9 +53,11 @@ struct LoginView: View {
                             .foregroundColor(.red)
                             .font(.footnote)
                     }
+                    .listRowBackground(Theme.panel)
                 }
             }
-            .navigationTitle("PO Generator")
+            .industrialForm()
+            .navigationTitle("PO GENERATOR")
         }
     }
 

@@ -9,7 +9,7 @@ struct ContentView: View {
             if authStore.currentUser != nil {
                 TabView {
                     GenerateView()
-                        .tabItem { Label("New PO", systemImage: "plus.circle") }
+                        .tabItem { Label("New PO", systemImage: "shippingbox") }
 
                     HistoryView()
                         .tabItem { Label("History", systemImage: "clock") }
@@ -23,6 +23,8 @@ struct ContentView: View {
         }
         .environmentObject(store)
         .environmentObject(authStore)
+        .preferredColorScheme(.dark)
+        .tint(Theme.accent)
     }
 }
 

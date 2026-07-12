@@ -37,6 +37,7 @@ struct GenerateView: View {
                         .submitLabel(.next)
                         .onSubmit { focusedField = .details }
                 }
+                .listRowBackground(Theme.panel)
 
                 Section("Description") {
                     TextField("What's this PO for? (optional)", text: $details, axis: .vertical)
@@ -45,6 +46,7 @@ struct GenerateView: View {
                         .submitLabel(.done)
                         .onSubmit { focusedField = nil }
                 }
+                .listRowBackground(Theme.panel)
 
                 Section("Photo") {
                     if let selectedImage {
@@ -65,6 +67,7 @@ struct GenerateView: View {
                         }
                     }
                 }
+                .listRowBackground(Theme.panel)
 
                 Section {
                     Button {
@@ -75,14 +78,19 @@ struct GenerateView: View {
                             if store.isGenerating {
                                 ProgressView()
                             } else {
-                                Text("Generate PO Number")
+                                Text("GENERATE PO NUMBER")
+                                    .font(.system(.headline, design: .monospaced))
                                     .bold()
+                                    .foregroundColor(.black)
                             }
                             Spacer()
                         }
                     }
                     .disabled(!store.canGenerate || store.isGenerating)
                 }
+                .listRowBackground(
+                    (store.canGenerate && !store.isGenerating) ? Theme.accent : Theme.accent.opacity(0.35)
+                )
 
                 if let po = store.lastGenerated {
                     Section("Generated PO") {
@@ -90,6 +98,7 @@ struct GenerateView: View {
                             Text(po.poNumber)
                                 .font(.system(.largeTitle, design: .monospaced))
                                 .bold()
+                                .foregroundColor(Theme.accent)
                             Text("\(po.customerName) · Job \(po.jobNumber)")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
@@ -103,6 +112,7 @@ struct GenerateView: View {
                             Label("Copy PO Number", systemImage: "doc.on.doc")
                         }
                     }
+                    .listRowBackground(Theme.panel)
                 }
 
                 if let errorMessage = store.errorMessage {
@@ -111,9 +121,11 @@ struct GenerateView: View {
                             .foregroundColor(.red)
                             .font(.footnote)
                     }
+                    .listRowBackground(Theme.panel)
                 }
             }
-            .navigationTitle("New PO")
+            .industrialForm()
+            .navigationTitle("NEW PO")
             .confirmationDialog("Add Photo", isPresented: $showAttachmentOptions) {
                 if cameraAvailable {
                     Button("Take Photo") { showCameraCapture = true }
