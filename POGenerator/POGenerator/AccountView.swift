@@ -2,54 +2,123 @@ import SwiftUI
 
 struct AccountView: View {
     @EnvironmentObject private var authStore: AuthStore
-    @State private var newName = ""
-    @State private var newPhone = ""
+    @State private var newUsername = ""
+    @State private var newPassword = ""
+    @State private var newIsManager = false
+    @State private var resetTarget: Account?
+    @State private var resetPasswordText = ""
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             Form {
                 if let user = authStore.currentUser {
                     Section("Logged In As") {
-                        Text(user.name)
-                        Text(user.phoneNumber)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
+                        Text(user.username)
+                        if user.isManager {
+                            Text("Manager")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
                         Button("Log Out", role: .destructive) {
                             authStore.logOut()
                         }
                     }
                 }
 
-                Section("Team") {
-                    ForEach(authStore.employees) { employee in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(employee.name)
-                            Text(employee.phoneNumber)
+                if authStore.currentUser?.isManager == true {
+                    Section("Team") {
+                        ForEach(authStore.accounts) { account in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(account.username)
+                                    if account.isManager {
+                                        Text("Manager")
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                Button("Reset Password") {
+                                    resetTarget = account
+                                    resetPasswordText = ""
+                                }
                                 .font(.footnote)
-                                .foregroundColor(.secondary)
+                            }
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                authStore.removeAccount(authStore.accounts[index], requestedBy: authStore.currentUser)
+                            }
                         }
                     }
-                    .onDelete { indexSet in
-                        for index in indexSet {
-                            authStore.removeEmployee(authStore.employees[index])
+
+                    Section("Add Account") {
+                        TextField("Username", text: $newUsername)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        SecureField("Password", text: $newPassword)
+                        Toggle("Manager Account", isOn: $newIsManager)
+                        Button("Add") {
+                            addAccount()
                         }
+                        .disabled(newUsername.trimmingCharacters(in: .whitespaces).isEmpty || newPassword.isEmpty)
+                    }
+                } else {
+                    Section {
+                        Text("Contact your manager to add accounts or reset your password.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
                 }
 
-                Section("Add Employee") {
-                    TextField("Name", text: $newName)
-                    TextField("Phone Number", text: $newPhone)
-                        .keyboardType(.phonePad)
-                    Button("Add") {
-                        authStore.addEmployee(name: newName, phoneNumber: newPhone)
-                        newName = ""
-                        newPhone = ""
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.footnote)
                     }
-                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty
-                        || newPhone.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .navigationTitle("Account")
+            .alert(
+                "Reset Password",
+                isPresented: Binding(
+                    get: { resetTarget != nil },
+                    set: { if !$0 { resetTarget = nil } }
+                ),
+                presenting: resetTarget
+            ) { account in
+                SecureField("New Password", text: $resetPasswordText)
+                Button("Cancel", role: .cancel) { resetTarget = nil }
+                Button("Reset") {
+                    _ = authStore.resetPassword(
+                        for: account,
+                        newPassword: resetPasswordText,
+                        requestedBy: authStore.currentUser
+                    )
+                    resetTarget = nil
+                }
+            } message: { account in
+                Text("Set a new password for \(account.username).")
+            }
+        }
+    }
+
+    private func addAccount() {
+        errorMessage = nil
+        let success = authStore.createAccount(
+            username: newUsername,
+            password: newPassword,
+            isManager: newIsManager,
+            requestedBy: authStore.currentUser
+        )
+        if success {
+            newUsername = ""
+            newPassword = ""
+            newIsManager = false
+        } else {
+            errorMessage = "Couldn't add that account (username may already be taken)."
         }
     }
 }

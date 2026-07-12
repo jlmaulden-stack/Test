@@ -26,7 +26,7 @@ final class POStore: ObservableObject {
             && !PONumberFormatter.jobCore(from: jobNumber).isEmpty
     }
 
-    func generate(details: String, photo: UIImage?, createdBy employee: Employee) async {
+    func generate(details: String, photo: UIImage?, createdBy account: Account) async {
         guard canGenerate else { return }
         isGenerating = true
         errorMessage = nil
@@ -48,8 +48,7 @@ final class POStore: ObservableObject {
             createdAt: Date(),
             details: details.trimmingCharacters(in: .whitespacesAndNewlines),
             photoFileName: photoFileName,
-            createdByName: employee.name,
-            createdByPhone: employee.phoneNumber,
+            createdByName: account.username,
             isFulfilled: false,
             fulfilledByName: nil,
             fulfilledAt: nil
@@ -63,10 +62,10 @@ final class POStore: ObservableObject {
         customerName = ""
     }
 
-    func setFulfilled(_ fulfilled: Bool, for po: PurchaseOrder, by employee: Employee?) {
+    func setFulfilled(_ fulfilled: Bool, for po: PurchaseOrder, by account: Account?) {
         guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
         history[index].isFulfilled = fulfilled
-        history[index].fulfilledByName = fulfilled ? employee?.name : nil
+        history[index].fulfilledByName = fulfilled ? account?.username : nil
         history[index].fulfilledAt = fulfilled ? Date() : nil
         if lastGenerated?.id == po.id {
             lastGenerated = history[index]

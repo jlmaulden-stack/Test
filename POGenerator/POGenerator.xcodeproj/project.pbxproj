@@ -17,13 +17,14 @@
 		AFCDEEC7D34F480C5FBFF174 /* PONumberFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6356B164C2EC21D64A7AC6E3 /* PONumberFormatter.swift */; };
 		0C4B422205AE5799AFBA5194 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B246796344B89B4FC12A449A /* Assets.xcassets */; };
 		5E7A5B5267BC609252770773 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 263782D364E0000CC0CF2D42 /* CloudKit.framework */; };
-		CA51B48AC7B2A8585C45B246 /* Employee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AE6298BB70FBD35550DFA22 /* Employee.swift */; };
+		CA51B48AC7B2A8585C45B246 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AE6298BB70FBD35550DFA22 /* Account.swift */; };
 		D39E2A3384A13B32D519BEB8 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E12BFC56CF61C113940F5E /* AuthStore.swift */; };
 		DDAE300FCDC350E686CF7448 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81ABEE4F3642631B8EB99D44 /* LoginView.swift */; };
 		673FCAE2AB5CCB18B283F129 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D7AFDFF01013938659E6ED1 /* AccountView.swift */; };
 		41A1E746942444475B93D7E2 /* PODetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66812C84EF6A77F33DC0759 /* PODetailView.swift */; };
 		F04DBBCD6B0C2A099FA2E465 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C3D780C12D4F399CB171A04 /* CameraCaptureView.swift */; };
 		237CD8D65CBF6976EC9409E4 /* PhotoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9520F8450E68C753D2E416 /* PhotoStore.swift */; };
+		15D028164E2B24FF5A01CA32 /* PasswordHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42295E2A3D47AC31CFB0C56 /* PasswordHasher.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,13 +41,14 @@
 		5AD7A4961406206784FAB6EA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		CC93B959999A4B6DB55DF50F /* POGenerator.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = POGenerator.entitlements; sourceTree = "<group>"; };
 		5FDBDDA67E263B1BF2269302 /* POGenerator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = POGenerator.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		0AE6298BB70FBD35550DFA22 /* Employee.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Employee.swift; sourceTree = "<group>"; };
+		0AE6298BB70FBD35550DFA22 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
 		78E12BFC56CF61C113940F5E /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
 		81ABEE4F3642631B8EB99D44 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		5D7AFDFF01013938659E6ED1 /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
 		D66812C84EF6A77F33DC0759 /* PODetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PODetailView.swift; sourceTree = "<group>"; };
 		4C3D780C12D4F399CB171A04 /* CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureView.swift; sourceTree = "<group>"; };
 		EF9520F8450E68C753D2E416 /* PhotoStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoStore.swift; sourceTree = "<group>"; };
+		B42295E2A3D47AC31CFB0C56 /* PasswordHasher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordHasher.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,13 +99,14 @@
 				3492EA833F3B2D9364F03387 /* CloudKitManager.swift */,
 				DA1B85483DF0B4748C5F8A82 /* PurchaseOrder.swift */,
 				6356B164C2EC21D64A7AC6E3 /* PONumberFormatter.swift */,
-				0AE6298BB70FBD35550DFA22 /* Employee.swift */,
+				0AE6298BB70FBD35550DFA22 /* Account.swift */,
 				78E12BFC56CF61C113940F5E /* AuthStore.swift */,
 				81ABEE4F3642631B8EB99D44 /* LoginView.swift */,
 				5D7AFDFF01013938659E6ED1 /* AccountView.swift */,
 				D66812C84EF6A77F33DC0759 /* PODetailView.swift */,
 				4C3D780C12D4F399CB171A04 /* CameraCaptureView.swift */,
 				EF9520F8450E68C753D2E416 /* PhotoStore.swift */,
+				B42295E2A3D47AC31CFB0C56 /* PasswordHasher.swift */,
 				B246796344B89B4FC12A449A /* Assets.xcassets */,
 				5AD7A4961406206784FAB6EA /* Info.plist */,
 				CC93B959999A4B6DB55DF50F /* POGenerator.entitlements */,
@@ -193,13 +196,14 @@
 				E5C587E28CEFB23901CEAA9B /* CloudKitManager.swift in Sources */,
 				3BEC9040C0B02C39ACC5B90F /* PurchaseOrder.swift in Sources */,
 				AFCDEEC7D34F480C5FBFF174 /* PONumberFormatter.swift in Sources */,
-				CA51B48AC7B2A8585C45B246 /* Employee.swift in Sources */,
+				CA51B48AC7B2A8585C45B246 /* Account.swift in Sources */,
 				D39E2A3384A13B32D519BEB8 /* AuthStore.swift in Sources */,
 				DDAE300FCDC350E686CF7448 /* LoginView.swift in Sources */,
 				673FCAE2AB5CCB18B283F129 /* AccountView.swift in Sources */,
 				41A1E746942444475B93D7E2 /* PODetailView.swift in Sources */,
 				F04DBBCD6B0C2A099FA2E465 /* CameraCaptureView.swift in Sources */,
 				237CD8D65CBF6976EC9409E4 /* PhotoStore.swift in Sources */,
+				15D028164E2B24FF5A01CA32 /* PasswordHasher.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,45 +1,69 @@
 import Foundation
 
-/// Manager-provisioned employee roster and "who's using this phone" session state.
-/// Login is just a name/phone-number pick from the roster (no SMS verification yet) —
-/// see the phone-number-authenticated version once a backend is available.
+/// Manager-provisioned accounts, stored locally. The first account created on a fresh
+/// install becomes a manager; only managers can create further accounts or reset
+/// passwords. There's no self-service password reset — a locked-out employee asks
+/// their manager, who resets it from the Account tab.
 @MainActor
 final class AuthStore: ObservableObject {
-    @Published var employees: [Employee] = []
-    @Published var currentUser: Employee?
+    @Published var accounts: [Account] = []
+    @Published var currentUser: Account?
 
     private let defaults = UserDefaults.standard
-    private let employeesKey = "AuthStore.employees"
+    private let accountsKey = "AuthStore.accounts"
     private let currentUserIDKey = "AuthStore.currentUserID"
 
+    var needsSetup: Bool { accounts.isEmpty }
+
     init() {
-        employees = Self.loadEmployees(from: defaults, key: employeesKey)
+        accounts = Self.loadAccounts(from: defaults, key: accountsKey)
         if let id = defaults.string(forKey: currentUserIDKey) {
-            currentUser = employees.first { $0.id == id }
+            currentUser = accounts.first { $0.id == id }
         }
     }
 
-    func addEmployee(name: String, phoneNumber: String) {
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
-        let trimmedPhone = phoneNumber.trimmingCharacters(in: .whitespaces)
-        guard !trimmedName.isEmpty, !trimmedPhone.isEmpty else { return }
-
-        let employee = Employee(id: UUID().uuidString, name: trimmedName, phoneNumber: trimmedPhone)
-        employees.append(employee)
-        saveEmployees()
+    /// Creates the very first account (a manager) when no accounts exist yet.
+    @discardableResult
+    func createInitialManagerAccount(username: String, password: String) -> Bool {
+        guard accounts.isEmpty else { return false }
+        return createAccount(username: username, password: password, isManager: true, requestedBy: nil)
     }
 
-    func removeEmployee(_ employee: Employee) {
-        employees.removeAll { $0.id == employee.id }
-        saveEmployees()
-        if currentUser?.id == employee.id {
-            logOut()
+    /// Only a manager may create new accounts once the roster is non-empty.
+    @discardableResult
+    func createAccount(username: String, password: String, isManager: Bool, requestedBy manager: Account?) -> Bool {
+        let trimmedUsername = username.trimmingCharacters(in: .whitespaces)
+        guard !trimmedUsername.isEmpty, !password.isEmpty else { return false }
+        guard !accounts.contains(where: { $0.username.caseInsensitiveCompare(trimmedUsername) == .orderedSame }) else {
+            return false
         }
+        if !accounts.isEmpty {
+            guard manager?.isManager == true else { return false }
+        }
+
+        let salt = PasswordHasher.randomSalt()
+        let account = Account(
+            id: UUID().uuidString,
+            username: trimmedUsername,
+            passwordHash: PasswordHasher.hash(password: password, salt: salt),
+            passwordSalt: salt,
+            isManager: isManager
+        )
+        accounts.append(account)
+        saveAccounts()
+        return true
     }
 
-    func logIn(as employee: Employee) {
-        currentUser = employee
-        defaults.set(employee.id, forKey: currentUserIDKey)
+    func logIn(username: String, password: String) -> Bool {
+        let trimmedUsername = username.trimmingCharacters(in: .whitespaces)
+        guard let account = accounts.first(where: { $0.username.caseInsensitiveCompare(trimmedUsername) == .orderedSame }),
+              PasswordHasher.hash(password: password, salt: account.passwordSalt) == account.passwordHash
+        else {
+            return false
+        }
+        currentUser = account
+        defaults.set(account.id, forKey: currentUserIDKey)
+        return true
     }
 
     func logOut() {
@@ -47,14 +71,39 @@ final class AuthStore: ObservableObject {
         defaults.removeObject(forKey: currentUserIDKey)
     }
 
-    private func saveEmployees() {
-        guard let data = try? JSONEncoder().encode(employees) else { return }
-        defaults.set(data, forKey: employeesKey)
+    /// Manager-only: resets another account's password after an out-of-app request.
+    @discardableResult
+    func resetPassword(for account: Account, newPassword: String, requestedBy manager: Account?) -> Bool {
+        guard manager?.isManager == true, !newPassword.isEmpty else { return false }
+        guard let index = accounts.firstIndex(where: { $0.id == account.id }) else { return false }
+
+        let salt = PasswordHasher.randomSalt()
+        accounts[index].passwordSalt = salt
+        accounts[index].passwordHash = PasswordHasher.hash(password: newPassword, salt: salt)
+        saveAccounts()
+        if currentUser?.id == account.id {
+            currentUser = accounts[index]
+        }
+        return true
     }
 
-    private static func loadEmployees(from defaults: UserDefaults, key: String) -> [Employee] {
+    func removeAccount(_ account: Account, requestedBy manager: Account?) {
+        guard manager?.isManager == true else { return }
+        accounts.removeAll { $0.id == account.id }
+        saveAccounts()
+        if currentUser?.id == account.id {
+            logOut()
+        }
+    }
+
+    private func saveAccounts() {
+        guard let data = try? JSONEncoder().encode(accounts) else { return }
+        defaults.set(data, forKey: accountsKey)
+    }
+
+    private static func loadAccounts(from defaults: UserDefaults, key: String) -> [Account] {
         guard let data = defaults.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([Employee].self, from: data)
+              let decoded = try? JSONDecoder().decode([Account].self, from: data)
         else { return [] }
         return decoded
     }

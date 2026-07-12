@@ -2,63 +2,80 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject private var authStore: AuthStore
-    @State private var searchText = ""
-    @State private var newName = ""
-    @State private var newPhone = ""
-
-    private var filteredEmployees: [Employee] {
-        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return authStore.employees }
-        return authStore.employees.filter {
-            $0.name.lowercased().contains(query) || $0.phoneNumber.contains(query)
-        }
-    }
+    @State private var username = ""
+    @State private var password = ""
+    @State private var confirmPassword = ""
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             Form {
-                if !authStore.employees.isEmpty {
-                    Section("Log In") {
-                        TextField("Search name or phone number", text: $searchText)
-                            .keyboardType(.namePhonePad)
-
-                        ForEach(filteredEmployees) { employee in
-                            Button {
-                                authStore.logIn(as: employee)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(employee.name)
-                                        .foregroundColor(.primary)
-                                    Text(employee.phoneNumber)
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
+                if authStore.needsSetup {
+                    Section("Create Manager Account") {
+                        Text("No accounts exist yet. Create the first one — it becomes a manager account that can create and manage everyone else's logins.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                        TextField("Username", text: $username)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        SecureField("Password", text: $password)
+                        SecureField("Confirm Password", text: $confirmPassword)
+                        Button("Create Manager Account") {
+                            createManagerAccount()
                         }
+                        .disabled(username.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty)
                     }
                 } else {
+                    Section("Log In") {
+                        TextField("Username", text: $username)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        SecureField("Password", text: $password)
+                        Button("Log In") {
+                            logIn()
+                        }
+                        .disabled(username.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty)
+                    }
+
                     Section {
-                        Text("No employees yet. Add your team below, then tap a name to log in.")
+                        Text("Forgot your password? Ask your manager to reset it from the Account tab.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                 }
 
-                Section("Add Employee") {
-                    TextField("Name", text: $newName)
-                    TextField("Phone Number", text: $newPhone)
-                        .keyboardType(.phonePad)
-                    Button("Add") {
-                        authStore.addEmployee(name: newName, phoneNumber: newPhone)
-                        newName = ""
-                        newPhone = ""
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.footnote)
                     }
-                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty
-                        || newPhone.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .navigationTitle("PO Generator")
         }
+    }
+
+    private func createManagerAccount() {
+        errorMessage = nil
+        guard password == confirmPassword else {
+            errorMessage = "Passwords don't match."
+            return
+        }
+        guard authStore.createInitialManagerAccount(username: username, password: password) else {
+            errorMessage = "Couldn't create that account."
+            return
+        }
+        _ = authStore.logIn(username: username, password: password)
+    }
+
+    private func logIn() {
+        errorMessage = nil
+        guard authStore.logIn(username: username, password: password) else {
+            errorMessage = "Incorrect username or password."
+            return
+        }
+        password = ""
     }
 }
 

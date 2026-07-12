@@ -72,7 +72,6 @@ struct PODetailView: View {
             details: "2x 4x8 plywood sheets",
             photoFileName: nil,
             createdByName: "Jordan",
-            createdByPhone: "555-0100",
             isFulfilled: false,
             fulfilledByName: nil,
             fulfilledAt: nil

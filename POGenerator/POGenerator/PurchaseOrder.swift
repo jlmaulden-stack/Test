@@ -10,7 +10,6 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     let details: String
     let photoFileName: String?
     let createdByName: String
-    let createdByPhone: String
     var isFulfilled: Bool
     var fulfilledByName: String?
     var fulfilledAt: Date?
