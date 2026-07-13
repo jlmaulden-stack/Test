@@ -98,7 +98,7 @@ struct GenerateView: View {
                             if store.isGenerating {
                                 ProgressView()
                             } else {
-                                Text("GENERATE PO NUMBER")
+                                Text("REQUEST PO")
                                     .font(.system(.headline, design: .monospaced))
                                     .bold()
                                     .foregroundColor(.black)
@@ -106,30 +106,44 @@ struct GenerateView: View {
                             Spacer()
                         }
                     }
-                    .disabled(!store.canGenerate || store.isGenerating)
+                    .disabled(!store.canRequest || store.isGenerating)
                 }
                 .listRowBackground(
-                    (store.canGenerate && !store.isGenerating) ? Theme.accent : Theme.accent.opacity(0.35)
+                    (store.canRequest && !store.isGenerating) ? Theme.accent : Theme.accent.opacity(0.35)
                 )
 
                 if let po = store.lastGenerated {
-                    Section("Generated PO") {
+                    Section(po.isApproved ? "Generated PO" : "Requested PO") {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(po.poNumber)
-                                .font(.system(.largeTitle, design: .monospaced))
-                                .bold()
-                                .foregroundColor(Theme.accent)
+                            if po.isApproved {
+                                Text(po.poNumber)
+                                    .font(.system(.largeTitle, design: .monospaced))
+                                    .bold()
+                                    .foregroundColor(Theme.accent)
+                            } else {
+                                Text("PENDING APPROVAL")
+                                    .font(.system(.headline, design: .monospaced))
+                                    .bold()
+                                    .foregroundColor(.orange)
+                            }
                             Text("\(po.customerName) · Job \(po.jobNumber)")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
                         .padding(.vertical, 4)
 
-                        Button {
-                            UIPasteboard.general.string = po.poNumber
-                            showCopiedToast = true
-                        } label: {
-                            Label("Copy PO Number", systemImage: "doc.on.doc")
+                        if po.isApproved {
+                            Button {
+                                UIPasteboard.general.string = po.poNumber
+                                showCopiedToast = true
+                            } label: {
+                                Label("Copy PO Number", systemImage: "doc.on.doc")
+                            }
+                        } else {
+                            Text("A PO number is assigned once this request is approved.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                            ApprovalControls(po: po)
                         }
                     }
                     .listRowBackground(Theme.panel)
@@ -193,7 +207,7 @@ struct GenerateView: View {
         let submittedDetails = details
         let submittedImages = selectedImages
         Task {
-            await store.generate(details: submittedDetails, photos: submittedImages, createdBy: user)
+            await store.requestPO(details: submittedDetails, photos: submittedImages, createdBy: user)
             details = ""
             selectedImages = []
         }

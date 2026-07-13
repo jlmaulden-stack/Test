@@ -38,12 +38,20 @@ struct HistoryView: View {
                         NavigationLink(value: po) {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
-                                    Text(po.poNumber)
-                                        .font(.system(.body, design: .monospaced))
-                                        .bold()
-                                        .foregroundColor(Theme.accent)
-                                    Spacer()
-                                    statusMenu(for: po)
+                                    if po.isApproved {
+                                        Text(po.poNumber)
+                                            .font(.system(.body, design: .monospaced))
+                                            .bold()
+                                            .foregroundColor(Theme.accent)
+                                        Spacer()
+                                        statusMenu(for: po)
+                                    } else {
+                                        Label("PENDING APPROVAL", systemImage: "clock.badge.questionmark")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .bold()
+                                            .foregroundColor(.orange)
+                                        Spacer()
+                                    }
                                 }
                                 Text("\(po.customerName) · Job \(po.jobNumber)")
                                     .font(.subheadline)

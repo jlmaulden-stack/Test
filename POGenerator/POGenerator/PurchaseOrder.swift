@@ -2,14 +2,19 @@ import Foundation
 
 struct PurchaseOrder: Identifiable, Hashable, Codable {
     let id: String
-    let poNumber: String
+    // Assigned at approval time; empty/0 while a request is pending approval.
+    var poNumber: String
     let jobNumber: String
     let customerName: String
-    let sequence: Int
+    var sequence: Int
     let createdAt: Date
     let details: String
     let photoFileNames: [String]
     let createdByName: String
+    var isApproved: Bool
+    var approvedByName: String?
+    var approvedAt: Date?
+    var wasSelfApproved: Bool
     var status: POStatus
     var statusUpdatedByName: String?
     var statusUpdatedAt: Date?
@@ -32,6 +37,10 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         details: String,
         photoFileNames: [String] = [],
         createdByName: String,
+        isApproved: Bool = true,
+        approvedByName: String? = nil,
+        approvedAt: Date? = nil,
+        wasSelfApproved: Bool = false,
         status: POStatus = .new,
         statusUpdatedByName: String? = nil,
         statusUpdatedAt: Date? = nil,
@@ -47,6 +56,10 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         self.details = details
         self.photoFileNames = photoFileNames
         self.createdByName = createdByName
+        self.isApproved = isApproved
+        self.approvedByName = approvedByName
+        self.approvedAt = approvedAt
+        self.wasSelfApproved = wasSelfApproved
         self.status = status
         self.statusUpdatedByName = statusUpdatedByName
         self.statusUpdatedAt = statusUpdatedAt
@@ -56,6 +69,7 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, poNumber, jobNumber, customerName, sequence, createdAt, details, photoFileNames, createdByName
+        case isApproved, approvedByName, approvedAt, wasSelfApproved
         case status, statusUpdatedByName, statusUpdatedAt, fulfillmentNotes, receipts
     }
 
@@ -79,6 +93,13 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         details = try container.decodeIfPresent(String.self, forKey: .details) ?? ""
         createdByName = try container.decodeIfPresent(String.self, forKey: .createdByName) ?? ""
         fulfillmentNotes = try container.decodeIfPresent(String.self, forKey: .fulfillmentNotes) ?? ""
+
+        // Records from before the approval feature already have numbers, so treat them
+        // as approved.
+        isApproved = try container.decodeIfPresent(Bool.self, forKey: .isApproved) ?? true
+        approvedByName = try container.decodeIfPresent(String.self, forKey: .approvedByName)
+        approvedAt = try container.decodeIfPresent(Date.self, forKey: .approvedAt)
+        wasSelfApproved = try container.decodeIfPresent(Bool.self, forKey: .wasSelfApproved) ?? false
 
         let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
 

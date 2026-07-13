@@ -64,13 +64,28 @@ struct PODetailView: View {
 
     var body: some View {
         Form {
-            Section("PO Number") {
-                Text(current.poNumber)
-                    .font(.system(.title2, design: .monospaced))
-                    .bold()
-                    .foregroundColor(Theme.accent)
+            if current.isApproved {
+                Section("PO Number") {
+                    Text(current.poNumber)
+                        .font(.system(.title2, design: .monospaced))
+                        .bold()
+                        .foregroundColor(Theme.accent)
+                    if let approver = current.approvedByName {
+                        LabeledContent("Approved By", value: current.wasSelfApproved ? "\(approver) (self)" : approver)
+                    }
+                }
+                .listRowBackground(Theme.panel)
+            } else {
+                Section("Approval") {
+                    Label("Pending Approval", systemImage: "clock.badge.questionmark")
+                        .foregroundColor(.orange)
+                    Text("A PO number is assigned once this request is approved. Only managers can approve.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    ApprovalControls(po: current)
+                }
+                .listRowBackground(Theme.panel)
             }
-            .listRowBackground(Theme.panel)
 
             Section("Job") {
                 LabeledContent("Job Number", value: current.jobNumber)
@@ -107,30 +122,32 @@ struct PODetailView: View {
                 .listRowBackground(Theme.panel)
             }
 
-            Section("Status") {
-                Picker("Status", selection: statusBinding) {
-                    ForEach(POStatus.allCases) { status in
-                        Label(status.label, systemImage: status.systemImage).tag(status)
+            if current.isApproved {
+                Section("Status") {
+                    Picker("Status", selection: statusBinding) {
+                        ForEach(POStatus.allCases) { status in
+                            Label(status.label, systemImage: status.systemImage).tag(status)
+                        }
+                    }
+                    .tint(current.status.color)
+
+                    if let updatedBy = current.statusUpdatedByName {
+                        LabeledContent("Updated By", value: updatedBy)
+                    }
+                    if let updatedAt = current.statusUpdatedAt {
+                        LabeledContent("Updated At", value: updatedAt.formatted(date: .abbreviated, time: .shortened))
                     }
                 }
-                .tint(current.status.color)
+                .listRowBackground(Theme.panel)
 
-                if let updatedBy = current.statusUpdatedByName {
-                    LabeledContent("Updated By", value: updatedBy)
+                Section("Fulfillment Notes") {
+                    TextField("Add notes about fulfillment...", text: $notesText, axis: .vertical)
+                        .lineLimit(3...8)
                 }
-                if let updatedAt = current.statusUpdatedAt {
-                    LabeledContent("Updated At", value: updatedAt.formatted(date: .abbreviated, time: .shortened))
-                }
-            }
-            .listRowBackground(Theme.panel)
+                .listRowBackground(Theme.panel)
 
-            Section("Fulfillment Notes") {
-                TextField("Add notes about fulfillment...", text: $notesText, axis: .vertical)
-                    .lineLimit(3...8)
+                receiptsSection
             }
-            .listRowBackground(Theme.panel)
-
-            receiptsSection
         }
         .industrialForm()
         .navigationTitle("PO DETAILS")
