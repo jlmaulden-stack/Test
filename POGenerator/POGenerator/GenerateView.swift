@@ -48,7 +48,7 @@ struct GenerateView: View {
                 .listRowBackground(Theme.panel)
 
                 Section("Description") {
-                    TextField("What's this PO for? (optional)", text: $details, axis: .vertical)
+                    TextField("List Materials Needed Here", text: $details, axis: .vertical)
                         .lineLimit(3...6)
                         .focused($focusedField, equals: .details)
                         .submitLabel(.done)
