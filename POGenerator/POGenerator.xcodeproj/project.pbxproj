@@ -26,6 +26,7 @@
 		237CD8D65CBF6976EC9409E4 /* PhotoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9520F8450E68C753D2E416 /* PhotoStore.swift */; };
 		15D028164E2B24FF5A01CA32 /* PasswordHasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42295E2A3D47AC31CFB0C56 /* PasswordHasher.swift */; };
 		ED0B2EB773B97257CA1D3AC0 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 674D09C64C643F2CA42773B6 /* Theme.swift */; };
+		6BD3CDC6584292973B5F8575 /* POStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4EAB5D0B08F1E059F1469B0 /* POStatus.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +52,7 @@
 		EF9520F8450E68C753D2E416 /* PhotoStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoStore.swift; sourceTree = "<group>"; };
 		B42295E2A3D47AC31CFB0C56 /* PasswordHasher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordHasher.swift; sourceTree = "<group>"; };
 		674D09C64C643F2CA42773B6 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A4EAB5D0B08F1E059F1469B0 /* POStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = POStatus.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +112,7 @@
 				EF9520F8450E68C753D2E416 /* PhotoStore.swift */,
 				B42295E2A3D47AC31CFB0C56 /* PasswordHasher.swift */,
 				674D09C64C643F2CA42773B6 /* Theme.swift */,
+				A4EAB5D0B08F1E059F1469B0 /* POStatus.swift */,
 				B246796344B89B4FC12A449A /* Assets.xcassets */,
 				5AD7A4961406206784FAB6EA /* Info.plist */,
 				CC93B959999A4B6DB55DF50F /* POGenerator.entitlements */,
@@ -208,6 +211,7 @@
 				237CD8D65CBF6976EC9409E4 /* PhotoStore.swift in Sources */,
 				15D028164E2B24FF5A01CA32 /* PasswordHasher.swift in Sources */,
 				ED0B2EB773B97257CA1D3AC0 /* Theme.swift in Sources */,
+				6BD3CDC6584292973B5F8575 /* POStatus.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

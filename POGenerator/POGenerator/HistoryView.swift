@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @EnvironmentObject private var store: POStore
+    @EnvironmentObject private var authStore: AuthStore
 
     var body: some View {
         NavigationStack {
@@ -30,12 +31,8 @@ struct HistoryView: View {
                                         .font(.system(.body, design: .monospaced))
                                         .bold()
                                         .foregroundColor(Theme.accent)
-                                    if po.isFulfilled {
-                                        Spacer()
-                                        Label("Fulfilled", systemImage: "checkmark.circle.fill")
-                                            .font(.caption)
-                                            .foregroundColor(.green)
-                                    }
+                                    Spacer()
+                                    statusMenu(for: po)
                                 }
                                 Text("\(po.customerName) · Job \(po.jobNumber)")
                                     .font(.subheadline)
@@ -63,6 +60,24 @@ struct HistoryView: View {
                 await store.loadHistory()
             }
         }
+    }
+
+    private func statusMenu(for po: PurchaseOrder) -> some View {
+        Menu {
+            ForEach(POStatus.allCases) { status in
+                Button {
+                    store.setStatus(status, for: po, by: authStore.currentUser)
+                } label: {
+                    Label(status.label, systemImage: status.systemImage)
+                }
+            }
+        } label: {
+            Label(po.status.label, systemImage: po.status.systemImage)
+                .font(.caption)
+                .foregroundColor(po.status.color)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 }
 

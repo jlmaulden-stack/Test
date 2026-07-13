@@ -2,7 +2,6 @@ import SwiftUI
 
 struct PODetailView: View {
     @EnvironmentObject private var store: POStore
-    @EnvironmentObject private var authStore: AuthStore
     let po: PurchaseOrder
 
     private var current: PurchaseOrder {
@@ -44,20 +43,20 @@ struct PODetailView: View {
                 .listRowBackground(Theme.panel)
             }
 
-            Section("Fulfillment") {
-                Toggle("Fulfilled", isOn: Binding(
-                    get: { current.isFulfilled },
-                    set: { newValue in
-                        store.setFulfilled(newValue, for: current, by: authStore.currentUser)
-                    }
-                ))
+            Section("Status") {
+                Label(current.status.label, systemImage: current.status.systemImage)
+                    .foregroundColor(current.status.color)
 
-                if current.isFulfilled, let fulfilledBy = current.fulfilledByName {
-                    LabeledContent("Fulfilled By", value: fulfilledBy)
-                    if let fulfilledAt = current.fulfilledAt {
-                        LabeledContent("Fulfilled At", value: fulfilledAt.formatted(date: .abbreviated, time: .shortened))
-                    }
+                if let updatedBy = current.statusUpdatedByName {
+                    LabeledContent("Updated By", value: updatedBy)
                 }
+                if let updatedAt = current.statusUpdatedAt {
+                    LabeledContent("Updated At", value: updatedAt.formatted(date: .abbreviated, time: .shortened))
+                }
+
+                Text("Change the status from the History list.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
             }
             .listRowBackground(Theme.panel)
         }
@@ -78,10 +77,7 @@ struct PODetailView: View {
             createdAt: Date(),
             details: "2x 4x8 plywood sheets",
             photoFileName: nil,
-            createdByName: "Jordan",
-            isFulfilled: false,
-            fulfilledByName: nil,
-            fulfilledAt: nil
+            createdByName: "Jordan"
         ))
         .environmentObject(POStore())
         .environmentObject(AuthStore())

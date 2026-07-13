@@ -10,9 +10,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     let details: String
     let photoFileName: String?
     let createdByName: String
-    var isFulfilled: Bool
-    var fulfilledByName: String?
-    var fulfilledAt: Date?
+    var status: POStatus
+    var statusUpdatedByName: String?
+    var statusUpdatedAt: Date?
 
     init(
         id: String,
@@ -24,9 +24,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         details: String,
         photoFileName: String?,
         createdByName: String,
-        isFulfilled: Bool,
-        fulfilledByName: String?,
-        fulfilledAt: Date?
+        status: POStatus = .new,
+        statusUpdatedByName: String? = nil,
+        statusUpdatedAt: Date? = nil
     ) {
         self.id = id
         self.poNumber = poNumber
@@ -37,9 +37,16 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         self.details = details
         self.photoFileName = photoFileName
         self.createdByName = createdByName
-        self.isFulfilled = isFulfilled
-        self.fulfilledByName = fulfilledByName
-        self.fulfilledAt = fulfilledAt
+        self.status = status
+        self.statusUpdatedByName = statusUpdatedByName
+        self.statusUpdatedAt = statusUpdatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, poNumber, jobNumber, customerName, sequence, createdAt, details, photoFileName, createdByName
+        case status, statusUpdatedByName, statusUpdatedAt
+        // Pre-status builds tracked a single fulfilled flag; decoded below for migration.
+        case isFulfilled, fulfilledByName, fulfilledAt
     }
 
     // Fields added after v1 decode leniently so history saved by an older build
@@ -55,8 +62,16 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         details = try container.decodeIfPresent(String.self, forKey: .details) ?? ""
         photoFileName = try container.decodeIfPresent(String.self, forKey: .photoFileName)
         createdByName = try container.decodeIfPresent(String.self, forKey: .createdByName) ?? ""
-        isFulfilled = try container.decodeIfPresent(Bool.self, forKey: .isFulfilled) ?? false
-        fulfilledByName = try container.decodeIfPresent(String.self, forKey: .fulfilledByName)
-        fulfilledAt = try container.decodeIfPresent(Date.self, forKey: .fulfilledAt)
+
+        if let decodedStatus = try container.decodeIfPresent(POStatus.self, forKey: .status) {
+            status = decodedStatus
+            statusUpdatedByName = try container.decodeIfPresent(String.self, forKey: .statusUpdatedByName)
+            statusUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .statusUpdatedAt)
+        } else {
+            let wasFulfilled = try container.decodeIfPresent(Bool.self, forKey: .isFulfilled) ?? false
+            status = wasFulfilled ? .fulfilled : .new
+            statusUpdatedByName = try container.decodeIfPresent(String.self, forKey: .fulfilledByName)
+            statusUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .fulfilledAt)
+        }
     }
 }

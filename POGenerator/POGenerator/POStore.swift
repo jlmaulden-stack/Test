@@ -48,10 +48,7 @@ final class POStore: ObservableObject {
             createdAt: Date(),
             details: details.trimmingCharacters(in: .whitespacesAndNewlines),
             photoFileName: photoFileName,
-            createdByName: account.username,
-            isFulfilled: false,
-            fulfilledByName: nil,
-            fulfilledAt: nil
+            createdByName: account.username
         )
 
         jobCounts[key] = sequence
@@ -62,11 +59,11 @@ final class POStore: ObservableObject {
         customerName = ""
     }
 
-    func setFulfilled(_ fulfilled: Bool, for po: PurchaseOrder, by account: Account?) {
+    func setStatus(_ status: POStatus, for po: PurchaseOrder, by account: Account?) {
         guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
-        history[index].isFulfilled = fulfilled
-        history[index].fulfilledByName = fulfilled ? account?.username : nil
-        history[index].fulfilledAt = fulfilled ? Date() : nil
+        history[index].status = status
+        history[index].statusUpdatedByName = account?.username
+        history[index].statusUpdatedAt = Date()
         if lastGenerated?.id == po.id {
             lastGenerated = history[index]
         }
