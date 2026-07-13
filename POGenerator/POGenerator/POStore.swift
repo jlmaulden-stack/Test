@@ -70,6 +70,15 @@ final class POStore: ObservableObject {
         saveHistory()
     }
 
+    func setFulfillmentNotes(_ notes: String, for po: PurchaseOrder) {
+        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
+        history[index].fulfillmentNotes = notes
+        if lastGenerated?.id == po.id {
+            lastGenerated = history[index]
+        }
+        saveHistory()
+    }
+
     func loadHistory() async {
         isLoadingHistory = true
         errorMessage = nil

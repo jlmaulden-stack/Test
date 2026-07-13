@@ -13,6 +13,7 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     var status: POStatus
     var statusUpdatedByName: String?
     var statusUpdatedAt: Date?
+    var fulfillmentNotes: String
 
     init(
         id: String,
@@ -26,7 +27,8 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         createdByName: String,
         status: POStatus = .new,
         statusUpdatedByName: String? = nil,
-        statusUpdatedAt: Date? = nil
+        statusUpdatedAt: Date? = nil,
+        fulfillmentNotes: String = ""
     ) {
         self.id = id
         self.poNumber = poNumber
@@ -40,11 +42,12 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         self.status = status
         self.statusUpdatedByName = statusUpdatedByName
         self.statusUpdatedAt = statusUpdatedAt
+        self.fulfillmentNotes = fulfillmentNotes
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, poNumber, jobNumber, customerName, sequence, createdAt, details, photoFileName, createdByName
-        case status, statusUpdatedByName, statusUpdatedAt
+        case status, statusUpdatedByName, statusUpdatedAt, fulfillmentNotes
         // Pre-status builds tracked a single fulfilled flag; decoded below for migration.
         case isFulfilled, fulfilledByName, fulfilledAt
     }
@@ -62,6 +65,7 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         details = try container.decodeIfPresent(String.self, forKey: .details) ?? ""
         photoFileName = try container.decodeIfPresent(String.self, forKey: .photoFileName)
         createdByName = try container.decodeIfPresent(String.self, forKey: .createdByName) ?? ""
+        fulfillmentNotes = try container.decodeIfPresent(String.self, forKey: .fulfillmentNotes) ?? ""
 
         if let decodedStatus = try container.decodeIfPresent(POStatus.self, forKey: .status) {
             status = decodedStatus

@@ -8,7 +8,7 @@ For job number `4521-10234` and customer `Acme Corp`, requesting the 2nd PO for 
 
 ```
 0234   -  2   -  ACME
-^last 4   ^Nth PO   ^first 4 letters
+^last 4   ^Nth PO   ^first full word
  digits    for this   of customer
  of job     job        name
  number
@@ -18,7 +18,7 @@ Result: **`0234-2-ACME`**
 
 - **Core (4 digits):** the last 4 digits of the job number.
 - **Sequence digit:** how many POs have been generated for that job so far (1st, 2nd, 3rd...).
-- **Customer letters:** the first 4 letters of the customer name, uppercased.
+- **Customer code:** the first full word of the customer name, uppercased (e.g. "Smith Brothers Construction" -> "SMITH").
 
 ## Shared, multi-device counting
 

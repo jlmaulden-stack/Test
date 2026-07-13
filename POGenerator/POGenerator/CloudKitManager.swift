@@ -118,6 +118,7 @@ final class CloudKitManager {
         record["details"] = ""
         record["createdByName"] = ""
         record["status"] = POStatus.new.rawValue
+        record["fulfillmentNotes"] = ""
 
         let saved = try await database.save(record)
         return PurchaseOrder(saved)
@@ -150,7 +151,8 @@ private extension PurchaseOrder {
             createdByName: record["createdByName"] as? String ?? "",
             status: (record["status"] as? String).flatMap(POStatus.init(rawValue:)) ?? .new,
             statusUpdatedByName: record["statusUpdatedByName"] as? String,
-            statusUpdatedAt: record["statusUpdatedAt"] as? Date
+            statusUpdatedAt: record["statusUpdatedAt"] as? Date,
+            fulfillmentNotes: record["fulfillmentNotes"] as? String ?? ""
         )
     }
 }

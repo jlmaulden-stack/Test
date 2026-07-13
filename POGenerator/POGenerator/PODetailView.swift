@@ -3,6 +3,7 @@ import SwiftUI
 struct PODetailView: View {
     @EnvironmentObject private var store: POStore
     let po: PurchaseOrder
+    @State private var notesText: String = ""
 
     private var current: PurchaseOrder {
         store.history.first(where: { $0.id == po.id }) ?? po
@@ -59,10 +60,22 @@ struct PODetailView: View {
                     .foregroundColor(.secondary)
             }
             .listRowBackground(Theme.panel)
+
+            Section("Fulfillment Notes") {
+                TextField("Add notes about fulfillment...", text: $notesText, axis: .vertical)
+                    .lineLimit(3...8)
+            }
+            .listRowBackground(Theme.panel)
         }
         .industrialForm()
         .navigationTitle("PO DETAILS")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            notesText = current.fulfillmentNotes
+        }
+        .onChange(of: notesText) { newValue in
+            store.setFulfillmentNotes(newValue, for: current)
+        }
     }
 }
 
