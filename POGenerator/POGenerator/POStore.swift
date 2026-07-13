@@ -79,13 +79,22 @@ final class POStore: ObservableObject {
         saveHistory()
     }
 
-    func addReceipt(_ image: UIImage, for po: PurchaseOrder) {
-        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
+    @discardableResult
+    func addReceipt(_ image: UIImage, for po: PurchaseOrder) -> String? {
+        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return nil }
         let receiptID = UUID().uuidString
-        guard let fileName = PhotoStore.saveReceipt(image, id: receiptID) else { return }
+        guard let fileName = PhotoStore.saveReceipt(image, id: receiptID) else { return nil }
         history[index].receipts.append(Receipt(id: receiptID, photoFileName: fileName, amount: nil))
         syncLastGenerated(with: index)
         saveHistory()
+        return receiptID
+    }
+
+    func removeReceipt(id receiptID: String, for po: PurchaseOrder) {
+        guard let index = history.firstIndex(where: { $0.id == po.id }),
+              let receipt = history[index].receipts.first(where: { $0.id == receiptID })
+        else { return }
+        removeReceipt(receipt, for: po)
     }
 
     func setReceiptAmount(_ amount: Double?, receiptID: String, for po: PurchaseOrder) {

@@ -17,6 +17,15 @@ struct PODetailView: View {
     // Set when the user chose "Add Receipt Photo" from the fulfilled prompt, so the
     // status flips to Fulfilled once a receipt is actually added.
     @State private var fulfillAfterReceipt = false
+    // Receipts awaiting a required dollar amount, prompted one at a time as uploaded.
+    @State private var pendingAmountReceiptIDs: [String] = []
+    @State private var amountPrompt: AmountPrompt?
+    @State private var amountPromptText = ""
+
+    private struct AmountPrompt: Identifiable {
+        let id = UUID()
+        let receiptID: String
+    }
 
     private var current: PurchaseOrder {
         store.history.first(where: { $0.id == po.id }) ?? po
@@ -26,9 +35,10 @@ struct PODetailView: View {
     /// UIImage, which isn't Equatable.
     private var cameraBinding: Binding<UIImage?> {
         Binding(get: { nil }, set: { image in
-            if let image {
-                store.addReceipt(image, for: current)
+            if let image, let receiptID = store.addReceipt(image, for: current) {
+                pendingAmountReceiptIDs.append(receiptID)
                 applyPendingFulfillmentIfNeeded()
+                scheduleNextAmountPrompt()
             }
         })
     }
@@ -103,6 +113,7 @@ struct PODetailView: View {
                         Label(status.label, systemImage: status.systemImage).tag(status)
                     }
                 }
+                .tint(current.status.color)
 
                 if let updatedBy = current.statusUpdatedByName {
                     LabeledContent("Updated By", value: updatedBy)
@@ -143,13 +154,17 @@ struct PODetailView: View {
                 var addedAny = false
                 for item in newItems {
                     if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        store.addReceipt(image, for: current)
+                       let image = UIImage(data: data),
+                       let receiptID = store.addReceipt(image, for: current) {
+                        pendingAmountReceiptIDs.append(receiptID)
                         addedAny = true
                     }
                 }
                 receiptPickerItems = []
-                if addedAny { applyPendingFulfillmentIfNeeded() }
+                if addedAny {
+                    applyPendingFulfillmentIfNeeded()
+                    scheduleNextAmountPrompt()
+                }
             }
         }
         .fullScreenCover(isPresented: $showCameraCapture) {
@@ -174,6 +189,29 @@ struct PODetailView: View {
         } message: {
             Text("Marking this PO fulfilled usually includes a receipt photo. Add one now, or mark it fulfilled anyway.")
         }
+        .alert("Enter Receipt Amount", isPresented: amountPromptPresented, presenting: amountPrompt) { prompt in
+            TextField("0.00", text: $amountPromptText)
+                .keyboardType(.decimalPad)
+            Button("Save") {
+                if let amount = parseAmount(amountPromptText), amount > 0 {
+                    store.setReceiptAmount(amount, receiptID: prompt.receiptID, for: current)
+                } else {
+                    // A dollar amount is required, so discard a receipt left without one.
+                    store.removeReceipt(id: prompt.receiptID, for: current)
+                }
+                finishAmountPrompt()
+            }
+            Button("Cancel", role: .cancel) {
+                store.removeReceipt(id: prompt.receiptID, for: current)
+                finishAmountPrompt()
+            }
+        } message: { _ in
+            Text("A dollar amount is required for each receipt. Cancelling discards this receipt photo.")
+        }
+    }
+
+    private var amountPromptPresented: Binding<Bool> {
+        Binding(get: { amountPrompt != nil }, set: { if !$0 { amountPrompt = nil } })
     }
 
     /// After a receipt is added as part of the "mark fulfilled" flow, complete the
@@ -182,6 +220,27 @@ struct PODetailView: View {
         guard fulfillAfterReceipt else { return }
         fulfillAfterReceipt = false
         store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+    }
+
+    /// Shows the amount prompt for the next just-uploaded receipt, after a short delay
+    /// so any dismissing camera/library/alert presentation clears first.
+    private func scheduleNextAmountPrompt() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            guard amountPrompt == nil, !pendingAmountReceiptIDs.isEmpty else { return }
+            let next = pendingAmountReceiptIDs.removeFirst()
+            amountPromptText = ""
+            amountPrompt = AmountPrompt(receiptID: next)
+        }
+    }
+
+    private func finishAmountPrompt() {
+        amountPrompt = nil
+        scheduleNextAmountPrompt()
+    }
+
+    private func parseAmount(_ text: String) -> Double? {
+        let cleaned = text.filter { $0.isNumber || $0 == "." }
+        return cleaned.isEmpty ? nil : Double(cleaned)
     }
 
     @ViewBuilder
