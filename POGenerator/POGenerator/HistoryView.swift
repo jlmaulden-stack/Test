@@ -6,6 +6,11 @@ struct HistoryView: View {
     @State private var searchText = ""
     @State private var sort: HistorySort = .dateNewest
     @State private var statusFilter: POStatus?
+    @State private var exportPayload: ExportPayload?
+
+    private var hasReceipts: Bool {
+        store.history.contains { $0.receiptPhotoFileName != nil }
+    }
 
     /// History filtered by the status filter and the search term (customer name or
     /// job number), then sorted.
@@ -64,12 +69,23 @@ struct HistoryView: View {
             .navigationTitle("HISTORY")
             .searchable(text: $searchText, prompt: "Customer or job number")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        exportPayload = ExportPayload(urls: ReceiptExporter.exportURLs(for: store.history))
+                    } label: {
+                        Label("Export Receipts", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(!hasReceipts)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     filterMenu
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     sortMenu
                 }
+            }
+            .sheet(item: $exportPayload) { payload in
+                ShareSheet(items: payload.urls)
             }
             .task {
                 await store.loadHistory()

@@ -1,20 +1,40 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 struct PODetailView: View {
     @EnvironmentObject private var store: POStore
     @EnvironmentObject private var authStore: AuthStore
     let po: PurchaseOrder
+
     @State private var notesText: String = ""
+    @State private var amountText: String = ""
+    @State private var showReceiptOptions = false
+    @State private var showCameraCapture = false
+    @State private var showPhotoLibraryPicker = false
+    @State private var photosPickerItem: PhotosPickerItem?
+    @State private var showFulfillWithoutReceiptPrompt = false
+    @State private var exportPayload: ExportPayload?
 
     private var current: PurchaseOrder {
         store.history.first(where: { $0.id == po.id }) ?? po
+    }
+
+    private var cameraAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
     }
 
     private var statusBinding: Binding<POStatus> {
         Binding(
             get: { current.status },
             set: { newStatus in
-                store.setStatus(newStatus, for: current, by: authStore.currentUser)
+                // Nudge the user to attach a receipt before marking fulfilled, but let
+                // them bypass it.
+                if newStatus == .fulfilled && current.receiptPhotoFileName == nil {
+                    showFulfillWithoutReceiptPrompt = true
+                } else {
+                    store.setStatus(newStatus, for: current, by: authStore.currentUser)
+                }
             }
         )
     }
@@ -75,16 +95,115 @@ struct PODetailView: View {
                     .lineLimit(3...8)
             }
             .listRowBackground(Theme.panel)
+
+            Section("Amount") {
+                HStack {
+                    Text("$")
+                        .foregroundColor(.secondary)
+                    TextField("0.00", text: $amountText)
+                        .keyboardType(.decimalPad)
+                }
+            }
+            .listRowBackground(Theme.panel)
+
+            receiptSection
         }
         .industrialForm()
         .navigationTitle("PO DETAILS")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             notesText = current.fulfillmentNotes
+            amountText = current.amount.map { String(format: "%.2f", $0) } ?? ""
         }
         .onChange(of: notesText) { newValue in
             store.setFulfillmentNotes(newValue, for: current)
         }
+        .onChange(of: amountText) { newValue in
+            store.setAmount(parseAmount(newValue), for: current)
+        }
+        .confirmationDialog("Receipt Photo", isPresented: $showReceiptOptions) {
+            if cameraAvailable {
+                Button("Take Photo") { showCameraCapture = true }
+            }
+            Button("Choose from Library") { showPhotoLibraryPicker = true }
+            if current.receiptPhotoFileName != nil {
+                Button("Remove Receipt", role: .destructive) {
+                    store.setReceiptPhoto(nil, for: current)
+                }
+            }
+        }
+        .photosPicker(isPresented: $showPhotoLibraryPicker, selection: $photosPickerItem, matching: .images)
+        .onChange(of: photosPickerItem) { newItem in
+            guard let newItem else { return }
+            Task {
+                if let data = try? await newItem.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    store.setReceiptPhoto(image, for: current)
+                }
+                photosPickerItem = nil
+            }
+        }
+        .fullScreenCover(isPresented: $showCameraCapture) {
+            CameraCaptureView(image: Binding(
+                get: { nil },
+                set: { image in
+                    if let image { store.setReceiptPhoto(image, for: current) }
+                }
+            ))
+            .ignoresSafeArea()
+        }
+        .sheet(item: $exportPayload) { payload in
+            ShareSheet(items: payload.urls)
+        }
+        .alert("Add a Receipt?", isPresented: $showFulfillWithoutReceiptPrompt) {
+            Button("Add Receipt Photo") {
+                // Defer so the alert finishes dismissing before the dialog presents.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    showReceiptOptions = true
+                }
+            }
+            Button("Mark Fulfilled Anyway") {
+                store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Marking this PO fulfilled usually includes a receipt photo. Add one now, or mark it fulfilled anyway.")
+        }
+    }
+
+    @ViewBuilder
+    private var receiptSection: some View {
+        Section("Receipt") {
+            if let fileName = current.receiptPhotoFileName, let image = PhotoStore.loadImage(fileName: fileName) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                Button {
+                    if let url = ReceiptExporter.exportURL(for: current) {
+                        exportPayload = ExportPayload(urls: [url])
+                    }
+                } label: {
+                    Label("Export Receipt", systemImage: "square.and.arrow.up")
+                }
+
+                Button("Change Receipt") { showReceiptOptions = true }
+            } else {
+                Button {
+                    showReceiptOptions = true
+                } label: {
+                    Label("Upload Receipt Photo", systemImage: "doc.viewfinder")
+                }
+            }
+        }
+        .listRowBackground(Theme.panel)
+    }
+
+    /// Parses a currency-ish string ("$1,500.50", "1500") into a Double, or nil if empty.
+    private func parseAmount(_ text: String) -> Double? {
+        let cleaned = text.filter { $0.isNumber || $0 == "." }
+        return cleaned.isEmpty ? nil : Double(cleaned)
     }
 }
 

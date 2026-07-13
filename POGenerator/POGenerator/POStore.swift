@@ -79,6 +79,28 @@ final class POStore: ObservableObject {
         saveHistory()
     }
 
+    func setAmount(_ amount: Double?, for po: PurchaseOrder) {
+        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
+        history[index].amount = amount
+        if lastGenerated?.id == po.id {
+            lastGenerated = history[index]
+        }
+        saveHistory()
+    }
+
+    func setReceiptPhoto(_ image: UIImage?, for po: PurchaseOrder) {
+        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
+        // Remove any previous receipt file before replacing or clearing.
+        if let existing = history[index].receiptPhotoFileName {
+            PhotoStore.delete(fileName: existing)
+        }
+        history[index].receiptPhotoFileName = image.flatMap { PhotoStore.saveReceipt($0, forPOID: po.id) }
+        if lastGenerated?.id == po.id {
+            lastGenerated = history[index]
+        }
+        saveHistory()
+    }
+
     func loadHistory() async {
         isLoadingHistory = true
         errorMessage = nil

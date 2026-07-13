@@ -8,8 +8,17 @@ enum PhotoStore {
     }
 
     static func save(_ image: UIImage, forPOID id: String) -> String? {
+        save(image, fileName: "\(id).jpg")
+    }
+
+    /// Saves a receipt photo under a distinct name so it never collides with the
+    /// PO's main attachment photo.
+    static func saveReceipt(_ image: UIImage, forPOID id: String) -> String? {
+        save(image, fileName: "receipt-\(id).jpg")
+    }
+
+    private static func save(_ image: UIImage, fileName: String) -> String? {
         guard let data = image.jpegData(compressionQuality: 0.7) else { return nil }
-        let fileName = "\(id).jpg"
         let url = directory.appendingPathComponent(fileName)
         do {
             try data.write(to: url, options: .atomic)
@@ -20,13 +29,19 @@ enum PhotoStore {
     }
 
     static func loadImage(fileName: String) -> UIImage? {
-        let url = directory.appendingPathComponent(fileName)
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? Data(contentsOf: url(fileName: fileName)) else { return nil }
         return UIImage(data: data)
     }
 
+    static func url(fileName: String) -> URL {
+        directory.appendingPathComponent(fileName)
+    }
+
+    static func fileExists(fileName: String) -> Bool {
+        FileManager.default.fileExists(atPath: url(fileName: fileName).path)
+    }
+
     static func delete(fileName: String) {
-        let url = directory.appendingPathComponent(fileName)
-        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: url(fileName: fileName))
     }
 }

@@ -14,6 +14,8 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     var statusUpdatedByName: String?
     var statusUpdatedAt: Date?
     var fulfillmentNotes: String
+    var amount: Double?
+    var receiptPhotoFileName: String?
 
     init(
         id: String,
@@ -28,7 +30,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         status: POStatus = .new,
         statusUpdatedByName: String? = nil,
         statusUpdatedAt: Date? = nil,
-        fulfillmentNotes: String = ""
+        fulfillmentNotes: String = "",
+        amount: Double? = nil,
+        receiptPhotoFileName: String? = nil
     ) {
         self.id = id
         self.poNumber = poNumber
@@ -43,11 +47,13 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         self.statusUpdatedByName = statusUpdatedByName
         self.statusUpdatedAt = statusUpdatedAt
         self.fulfillmentNotes = fulfillmentNotes
+        self.amount = amount
+        self.receiptPhotoFileName = receiptPhotoFileName
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, poNumber, jobNumber, customerName, sequence, createdAt, details, photoFileName, createdByName
-        case status, statusUpdatedByName, statusUpdatedAt, fulfillmentNotes
+        case status, statusUpdatedByName, statusUpdatedAt, fulfillmentNotes, amount, receiptPhotoFileName
     }
 
     // Pre-status builds tracked a single fulfilled flag; kept out of CodingKeys so
@@ -70,6 +76,8 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         photoFileName = try container.decodeIfPresent(String.self, forKey: .photoFileName)
         createdByName = try container.decodeIfPresent(String.self, forKey: .createdByName) ?? ""
         fulfillmentNotes = try container.decodeIfPresent(String.self, forKey: .fulfillmentNotes) ?? ""
+        amount = try container.decodeIfPresent(Double.self, forKey: .amount)
+        receiptPhotoFileName = try container.decodeIfPresent(String.self, forKey: .receiptPhotoFileName)
 
         if let decodedStatus = try container.decodeIfPresent(POStatus.self, forKey: .status) {
             status = decodedStatus
