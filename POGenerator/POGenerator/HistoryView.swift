@@ -73,11 +73,14 @@ struct HistoryView: View {
             }
         } label: {
             Label(po.status.label, systemImage: po.status.systemImage)
-                .font(.caption)
+                .font(.caption2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .foregroundColor(po.status.color)
+                // Constant footprint so the row is the same size for every status.
+                .frame(width: 108, alignment: .trailing)
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
     }
 }
 
