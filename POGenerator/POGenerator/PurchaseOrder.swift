@@ -48,7 +48,11 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, poNumber, jobNumber, customerName, sequence, createdAt, details, photoFileName, createdByName
         case status, statusUpdatedByName, statusUpdatedAt, fulfillmentNotes
-        // Pre-status builds tracked a single fulfilled flag; decoded below for migration.
+    }
+
+    // Pre-status builds tracked a single fulfilled flag; kept out of CodingKeys so
+    // Encodable synthesis still works (every CodingKeys case must be a stored property).
+    private enum LegacyCodingKeys: String, CodingKey {
         case isFulfilled, fulfilledByName, fulfilledAt
     }
 
@@ -72,10 +76,11 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
             statusUpdatedByName = try container.decodeIfPresent(String.self, forKey: .statusUpdatedByName)
             statusUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .statusUpdatedAt)
         } else {
-            let wasFulfilled = try container.decodeIfPresent(Bool.self, forKey: .isFulfilled) ?? false
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            let wasFulfilled = try legacy.decodeIfPresent(Bool.self, forKey: .isFulfilled) ?? false
             status = wasFulfilled ? .fulfilled : .new
-            statusUpdatedByName = try container.decodeIfPresent(String.self, forKey: .fulfilledByName)
-            statusUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .fulfilledAt)
+            statusUpdatedByName = try legacy.decodeIfPresent(String.self, forKey: .fulfilledByName)
+            statusUpdatedAt = try legacy.decodeIfPresent(Date.self, forKey: .fulfilledAt)
         }
     }
 }
