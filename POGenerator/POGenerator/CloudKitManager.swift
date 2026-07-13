@@ -115,6 +115,9 @@ final class CloudKitManager {
         record["customerName"] = customerName
         record["sequence"] = Int64(sequence)
         record["createdAt"] = Date()
+        record["details"] = ""
+        record["createdByName"] = ""
+        record["isFulfilled"] = Int64(0)
 
         let saved = try await database.save(record)
         return PurchaseOrder(saved)
@@ -141,7 +144,13 @@ private extension PurchaseOrder {
             jobNumber: record["jobNumber"] as? String ?? "",
             customerName: record["customerName"] as? String ?? "",
             sequence: Int(record["sequence"] as? Int64 ?? 0),
-            createdAt: record["createdAt"] as? Date ?? Date()
+            createdAt: record["createdAt"] as? Date ?? Date(),
+            details: record["details"] as? String ?? "",
+            photoFileName: record["photoFileName"] as? String,
+            createdByName: record["createdByName"] as? String ?? "",
+            isFulfilled: (record["isFulfilled"] as? Int64 ?? 0) != 0,
+            fulfilledByName: record["fulfilledByName"] as? String,
+            fulfilledAt: record["fulfilledAt"] as? Date
         )
     }
 }
