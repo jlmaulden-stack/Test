@@ -9,7 +9,7 @@ struct HistoryView: View {
     @State private var exportPayload: ExportPayload?
 
     private var hasReceipts: Bool {
-        store.history.contains { $0.receiptPhotoFileName != nil }
+        store.history.contains { !$0.receipts.isEmpty }
     }
 
     /// History filtered by the status filter and the search term (customer name or
@@ -71,7 +71,7 @@ struct HistoryView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        exportPayload = ExportPayload(urls: ReceiptExporter.exportURLs(for: store.history))
+                        exportPayload = ExportPayload(urls: ReceiptExporter.exportURLs(forAll: store.history))
                     } label: {
                         Label("Export Receipts", systemImage: "square.and.arrow.up")
                     }

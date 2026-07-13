@@ -7,13 +7,14 @@ enum PhotoStore {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
-    static func save(_ image: UIImage, forPOID id: String) -> String? {
-        save(image, fileName: "\(id).jpg")
+    /// Saves a PO submission photo under a fresh unique name, returning that name.
+    static func savePhoto(_ image: UIImage) -> String? {
+        save(image, fileName: "\(UUID().uuidString).jpg")
     }
 
-    /// Saves a receipt photo under a distinct name so it never collides with the
-    /// PO's main attachment photo.
-    static func saveReceipt(_ image: UIImage, forPOID id: String) -> String? {
+    /// Saves a receipt photo under a distinct name keyed to the receipt's id so it
+    /// never collides with submission photos or other receipts.
+    static func saveReceipt(_ image: UIImage, id: String) -> String? {
         save(image, fileName: "receipt-\(id).jpg")
     }
 

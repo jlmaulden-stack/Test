@@ -8,11 +8,19 @@ struct GenerateView: View {
     @FocusState private var focusedField: Field?
     @State private var showCopiedToast = false
     @State private var details = ""
-    @State private var selectedImage: UIImage?
-    @State private var photosPickerItem: PhotosPickerItem?
+    @State private var selectedImages: [UIImage] = []
+    @State private var photosPickerItems: [PhotosPickerItem] = []
     @State private var showCameraCapture = false
     @State private var showPhotoLibraryPicker = false
     @State private var showAttachmentOptions = false
+
+    /// Camera capture appends to the photo list on set; a computed binding avoids an
+    /// onChange on UIImage, which isn't Equatable.
+    private var cameraBinding: Binding<UIImage?> {
+        Binding(get: { nil }, set: { image in
+            if let image { selectedImages.append(image) }
+        })
+    }
 
     enum Field {
         case jobNumber, customerName, details
@@ -48,23 +56,35 @@ struct GenerateView: View {
                 }
                 .listRowBackground(Theme.panel)
 
-                Section("Photo") {
-                    if let selectedImage {
-                        Image(uiImage: selectedImage)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    Button(selectedImage == nil ? "Add Photo" : "Change Photo") {
-                        showAttachmentOptions = true
-                    }
-
-                    if selectedImage != nil {
-                        Button("Remove Photo", role: .destructive) {
-                            selectedImage = nil
+                Section("Photos") {
+                    if !selectedImages.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(Array(selectedImages.enumerated()), id: \.offset) { index, image in
+                                    ZStack(alignment: .topTrailing) {
+                                        Image(uiImage: image)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 90, height: 90)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        Button {
+                                            selectedImages.remove(at: index)
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundColor(.white)
+                                                .background(Circle().fill(.black.opacity(0.5)))
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .padding(4)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
                         }
+                    }
+
+                    Button(selectedImages.isEmpty ? "Add Photos" : "Add More Photos") {
+                        showAttachmentOptions = true
                     }
                 }
                 .listRowBackground(Theme.panel)
@@ -132,19 +152,21 @@ struct GenerateView: View {
                 }
                 Button("Choose from Library") { showPhotoLibraryPicker = true }
             }
-            .photosPicker(isPresented: $showPhotoLibraryPicker, selection: $photosPickerItem, matching: .images)
-            .onChange(of: photosPickerItem) { newItem in
-                guard let newItem else { return }
+            .photosPicker(isPresented: $showPhotoLibraryPicker, selection: $photosPickerItems, matching: .images)
+            .onChange(of: photosPickerItems) { newItems in
+                guard !newItems.isEmpty else { return }
                 Task {
-                    if let data = try? await newItem.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        selectedImage = image
+                    for item in newItems {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            selectedImages.append(image)
+                        }
                     }
-                    photosPickerItem = nil
+                    photosPickerItems = []
                 }
             }
             .fullScreenCover(isPresented: $showCameraCapture) {
-                CameraCaptureView(image: $selectedImage)
+                CameraCaptureView(image: cameraBinding)
                     .ignoresSafeArea()
             }
             .overlay(alignment: .bottom) {
@@ -169,11 +191,11 @@ struct GenerateView: View {
         focusedField = nil
         guard let user = authStore.currentUser else { return }
         let submittedDetails = details
-        let submittedImage = selectedImage
+        let submittedImages = selectedImages
         Task {
-            await store.generate(details: submittedDetails, photo: submittedImage, createdBy: user)
+            await store.generate(details: submittedDetails, photos: submittedImages, createdBy: user)
             details = ""
-            selectedImage = nil
+            selectedImages = []
         }
     }
 }

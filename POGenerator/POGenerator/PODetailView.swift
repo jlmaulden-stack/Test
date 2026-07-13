@@ -8,16 +8,23 @@ struct PODetailView: View {
     let po: PurchaseOrder
 
     @State private var notesText: String = ""
-    @State private var amountText: String = ""
     @State private var showReceiptOptions = false
     @State private var showCameraCapture = false
     @State private var showPhotoLibraryPicker = false
-    @State private var photosPickerItem: PhotosPickerItem?
+    @State private var receiptPickerItems: [PhotosPickerItem] = []
     @State private var showFulfillWithoutReceiptPrompt = false
     @State private var exportPayload: ExportPayload?
 
     private var current: PurchaseOrder {
         store.history.first(where: { $0.id == po.id }) ?? po
+    }
+
+    /// Camera capture adds a receipt on set; a computed binding avoids an onChange on
+    /// UIImage, which isn't Equatable.
+    private var cameraBinding: Binding<UIImage?> {
+        Binding(get: { nil }, set: { image in
+            if let image { store.addReceipt(image, for: current) }
+        })
     }
 
     private var cameraAvailable: Bool {
@@ -30,7 +37,7 @@ struct PODetailView: View {
             set: { newStatus in
                 // Nudge the user to attach a receipt before marking fulfilled, but let
                 // them bypass it.
-                if newStatus == .fulfilled && current.receiptPhotoFileName == nil {
+                if newStatus == .fulfilled && current.receipts.isEmpty {
                     showFulfillWithoutReceiptPrompt = true
                 } else {
                     store.setStatus(newStatus, for: current, by: authStore.currentUser)
@@ -64,12 +71,22 @@ struct PODetailView: View {
                 .listRowBackground(Theme.panel)
             }
 
-            if let fileName = current.photoFileName, let image = PhotoStore.loadImage(fileName: fileName) {
-                Section("Photo") {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+            if !current.photoFileNames.isEmpty {
+                Section("Photos") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(current.photoFileNames, id: \.self) { fileName in
+                                if let image = PhotoStore.loadImage(fileName: fileName) {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 120, height: 120)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
                 .listRowBackground(Theme.panel)
             }
@@ -96,61 +113,39 @@ struct PODetailView: View {
             }
             .listRowBackground(Theme.panel)
 
-            Section("Amount") {
-                HStack {
-                    Text("$")
-                        .foregroundColor(.secondary)
-                    TextField("0.00", text: $amountText)
-                        .keyboardType(.decimalPad)
-                }
-            }
-            .listRowBackground(Theme.panel)
-
-            receiptSection
+            receiptsSection
         }
         .industrialForm()
         .navigationTitle("PO DETAILS")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             notesText = current.fulfillmentNotes
-            amountText = current.amount.map { String(format: "%.2f", $0) } ?? ""
         }
         .onChange(of: notesText) { newValue in
             store.setFulfillmentNotes(newValue, for: current)
         }
-        .onChange(of: amountText) { newValue in
-            store.setAmount(parseAmount(newValue), for: current)
-        }
-        .confirmationDialog("Receipt Photo", isPresented: $showReceiptOptions) {
+        .confirmationDialog("Add Receipt", isPresented: $showReceiptOptions) {
             if cameraAvailable {
                 Button("Take Photo") { showCameraCapture = true }
             }
             Button("Choose from Library") { showPhotoLibraryPicker = true }
-            if current.receiptPhotoFileName != nil {
-                Button("Remove Receipt", role: .destructive) {
-                    store.setReceiptPhoto(nil, for: current)
-                }
-            }
         }
-        .photosPicker(isPresented: $showPhotoLibraryPicker, selection: $photosPickerItem, matching: .images)
-        .onChange(of: photosPickerItem) { newItem in
-            guard let newItem else { return }
+        .photosPicker(isPresented: $showPhotoLibraryPicker, selection: $receiptPickerItems, matching: .images)
+        .onChange(of: receiptPickerItems) { newItems in
+            guard !newItems.isEmpty else { return }
             Task {
-                if let data = try? await newItem.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
-                    store.setReceiptPhoto(image, for: current)
+                for item in newItems {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        store.addReceipt(image, for: current)
+                    }
                 }
-                photosPickerItem = nil
+                receiptPickerItems = []
             }
         }
         .fullScreenCover(isPresented: $showCameraCapture) {
-            CameraCaptureView(image: Binding(
-                get: { nil },
-                set: { image in
-                    if let image { store.setReceiptPhoto(image, for: current) }
-                }
-            ))
-            .ignoresSafeArea()
+            CameraCaptureView(image: cameraBinding)
+                .ignoresSafeArea()
         }
         .sheet(item: $exportPayload) { payload in
             ShareSheet(items: payload.urls)
@@ -172,35 +167,82 @@ struct PODetailView: View {
     }
 
     @ViewBuilder
-    private var receiptSection: some View {
-        Section("Receipt") {
-            if let fileName = current.receiptPhotoFileName, let image = PhotoStore.loadImage(fileName: fileName) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+    private var receiptsSection: some View {
+        Section {
+            ForEach(current.receipts) { receipt in
+                ReceiptRow(po: current, receipt: receipt)
+            }
 
+            Button {
+                showReceiptOptions = true
+            } label: {
+                Label("Add Receipt Photo", systemImage: "doc.viewfinder")
+            }
+
+            if !current.receipts.isEmpty {
                 Button {
-                    if let url = ReceiptExporter.exportURL(for: current) {
-                        exportPayload = ExportPayload(urls: [url])
+                    let urls = ReceiptExporter.exportURLs(for: current)
+                    if !urls.isEmpty {
+                        exportPayload = ExportPayload(urls: urls)
                     }
                 } label: {
-                    Label("Export Receipt", systemImage: "square.and.arrow.up")
+                    Label("Export Receipts", systemImage: "square.and.arrow.up")
                 }
-
-                Button("Change Receipt") { showReceiptOptions = true }
-            } else {
-                Button {
-                    showReceiptOptions = true
-                } label: {
-                    Label("Upload Receipt Photo", systemImage: "doc.viewfinder")
+            }
+        } header: {
+            HStack {
+                Text("Receipts")
+                Spacer()
+                if let total = current.totalAmount {
+                    Text("Total \(total, format: .currency(code: "USD"))")
                 }
             }
         }
         .listRowBackground(Theme.panel)
     }
+}
 
-    /// Parses a currency-ish string ("$1,500.50", "1500") into a Double, or nil if empty.
+/// One receipt: photo, its own dollar-amount field, and a remove button. Owns its
+/// amount text state so typing (e.g. a trailing ".") isn't reformatted mid-entry.
+private struct ReceiptRow: View {
+    @EnvironmentObject private var store: POStore
+    let po: PurchaseOrder
+    let receipt: Receipt
+    @State private var amountText: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let image = PhotoStore.loadImage(fileName: receipt.photoFileName) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+
+            HStack {
+                Text("$")
+                    .foregroundColor(.secondary)
+                TextField("0.00", text: $amountText)
+                    .keyboardType(.decimalPad)
+
+                Button(role: .destructive) {
+                    store.removeReceipt(receipt, for: po)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.vertical, 4)
+        .onAppear {
+            amountText = receipt.amount.map { String(format: "%.2f", $0) } ?? ""
+        }
+        .onChange(of: amountText) { newValue in
+            store.setReceiptAmount(parseAmount(newValue), receiptID: receipt.id, for: po)
+        }
+    }
+
     private func parseAmount(_ text: String) -> Double? {
         let cleaned = text.filter { $0.isNumber || $0 == "." }
         return cleaned.isEmpty ? nil : Double(cleaned)
@@ -217,7 +259,6 @@ struct PODetailView: View {
             sequence: 1,
             createdAt: Date(),
             details: "2x 4x8 plywood sheets",
-            photoFileName: nil,
             createdByName: "Jordan"
         ))
         .environmentObject(POStore())

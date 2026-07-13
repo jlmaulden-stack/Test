@@ -147,7 +147,7 @@ private extension PurchaseOrder {
             sequence: Int(record["sequence"] as? Int64 ?? 0),
             createdAt: record["createdAt"] as? Date ?? Date(),
             details: record["details"] as? String ?? "",
-            photoFileName: record["photoFileName"] as? String,
+            photoFileNames: record["photoFileNames"] as? [String] ?? [],
             createdByName: record["createdByName"] as? String ?? "",
             status: (record["status"] as? String).flatMap(POStatus.init(rawValue:)) ?? .new,
             statusUpdatedByName: record["statusUpdatedByName"] as? String,

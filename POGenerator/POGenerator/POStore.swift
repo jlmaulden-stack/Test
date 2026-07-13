@@ -26,7 +26,7 @@ final class POStore: ObservableObject {
             && !PONumberFormatter.jobCore(from: jobNumber).isEmpty
     }
 
-    func generate(details: String, photo: UIImage?, createdBy account: Account) async {
+    func generate(details: String, photos: [UIImage], createdBy account: Account) async {
         guard canGenerate else { return }
         isGenerating = true
         errorMessage = nil
@@ -37,7 +37,7 @@ final class POStore: ObservableObject {
         let key = trimmedJob.lowercased()
         let sequence = (jobCounts[key] ?? 0) + 1
         let id = UUID().uuidString
-        let photoFileName = photo.flatMap { PhotoStore.save($0, forPOID: id) }
+        let photoFileNames = photos.compactMap { PhotoStore.savePhoto($0) }
 
         let po = PurchaseOrder(
             id: id,
@@ -47,7 +47,7 @@ final class POStore: ObservableObject {
             sequence: sequence,
             createdAt: Date(),
             details: details.trimmingCharacters(in: .whitespacesAndNewlines),
-            photoFileName: photoFileName,
+            photoFileNames: photoFileNames,
             createdByName: account.username
         )
 
@@ -79,26 +79,36 @@ final class POStore: ObservableObject {
         saveHistory()
     }
 
-    func setAmount(_ amount: Double?, for po: PurchaseOrder) {
+    func addReceipt(_ image: UIImage, for po: PurchaseOrder) {
         guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
-        history[index].amount = amount
-        if lastGenerated?.id == po.id {
-            lastGenerated = history[index]
-        }
+        let receiptID = UUID().uuidString
+        guard let fileName = PhotoStore.saveReceipt(image, id: receiptID) else { return }
+        history[index].receipts.append(Receipt(id: receiptID, photoFileName: fileName, amount: nil))
+        syncLastGenerated(with: index)
         saveHistory()
     }
 
-    func setReceiptPhoto(_ image: UIImage?, for po: PurchaseOrder) {
+    func setReceiptAmount(_ amount: Double?, receiptID: String, for po: PurchaseOrder) {
+        guard let poIndex = history.firstIndex(where: { $0.id == po.id }),
+              let receiptIndex = history[poIndex].receipts.firstIndex(where: { $0.id == receiptID })
+        else { return }
+        history[poIndex].receipts[receiptIndex].amount = amount
+        syncLastGenerated(with: poIndex)
+        saveHistory()
+    }
+
+    func removeReceipt(_ receipt: Receipt, for po: PurchaseOrder) {
         guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
-        // Remove any previous receipt file before replacing or clearing.
-        if let existing = history[index].receiptPhotoFileName {
-            PhotoStore.delete(fileName: existing)
-        }
-        history[index].receiptPhotoFileName = image.flatMap { PhotoStore.saveReceipt($0, forPOID: po.id) }
-        if lastGenerated?.id == po.id {
+        PhotoStore.delete(fileName: receipt.photoFileName)
+        history[index].receipts.removeAll { $0.id == receipt.id }
+        syncLastGenerated(with: index)
+        saveHistory()
+    }
+
+    private func syncLastGenerated(with index: Int) {
+        if lastGenerated?.id == history[index].id {
             lastGenerated = history[index]
         }
-        saveHistory()
     }
 
     func loadHistory() async {

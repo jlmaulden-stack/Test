@@ -1,20 +1,30 @@
 import Foundation
 
 /// Prepares receipt photos for export by copying each into a temporary file named
-/// after its PO number, so the shared file is recognizable (e.g. "0234-2-ACME-receipt.jpg")
-/// rather than an opaque internal filename.
+/// after its PO number, so shared files are recognizable (e.g. "0234-2-ACME-receipt-1.jpg")
+/// rather than opaque internal filenames.
 enum ReceiptExporter {
-    /// Temp-file URL of one PO's receipt, or nil if it has no receipt on disk.
-    static func exportURL(for po: PurchaseOrder) -> URL? {
-        guard let fileName = po.receiptPhotoFileName,
-              PhotoStore.fileExists(fileName: fileName) else {
-            return nil
+    /// Temp-file URLs for every receipt on one PO.
+    static func exportURLs(for po: PurchaseOrder) -> [URL] {
+        let receipts = po.receipts
+        return receipts.enumerated().compactMap { index, receipt in
+            exportURL(receipt, poNumber: po.poNumber, index: index, total: receipts.count)
         }
+    }
 
-        let source = PhotoStore.url(fileName: fileName)
-        let safeName = po.poNumber.replacingOccurrences(of: "/", with: "-")
+    /// Temp-file URLs for every receipt across every PO, for a bulk export.
+    static func exportURLs(forAll orders: [PurchaseOrder]) -> [URL] {
+        orders.flatMap { exportURLs(for: $0) }
+    }
+
+    private static func exportURL(_ receipt: Receipt, poNumber: String, index: Int, total: Int) -> URL? {
+        guard PhotoStore.fileExists(fileName: receipt.photoFileName) else { return nil }
+
+        let source = PhotoStore.url(fileName: receipt.photoFileName)
+        let safeName = poNumber.replacingOccurrences(of: "/", with: "-")
+        let suffix = total > 1 ? "-receipt-\(index + 1)" : "-receipt"
         let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(safeName)-receipt.jpg")
+            .appendingPathComponent("\(safeName)\(suffix).jpg")
 
         do {
             if FileManager.default.fileExists(atPath: destination.path) {
@@ -25,10 +35,5 @@ enum ReceiptExporter {
         } catch {
             return nil
         }
-    }
-
-    /// Temp-file URLs for every PO that has a receipt, for a bulk export.
-    static func exportURLs(for orders: [PurchaseOrder]) -> [URL] {
-        orders.compactMap { exportURL(for: $0) }
     }
 }

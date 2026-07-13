@@ -30,6 +30,7 @@
 		96D8F9762E6E9C927E5A3B85 /* HistorySort.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BA6471584733C2F4916058 /* HistorySort.swift */; };
 		ECC126961EF7A31927D8A741 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54F9DF65B0DD98EAFFE50940 /* ShareSheet.swift */; };
 		4886490C9CDFD8620091076E /* ReceiptExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C69873D8E95DEC45B4966D /* ReceiptExporter.swift */; };
+		A6367EF3AB482ABFA8D59DA9 /* Receipt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594225EF3C1AEEA29993D275 /* Receipt.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,6 +60,7 @@
 		49BA6471584733C2F4916058 /* HistorySort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySort.swift; sourceTree = "<group>"; };
 		54F9DF65B0DD98EAFFE50940 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		F5C69873D8E95DEC45B4966D /* ReceiptExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptExporter.swift; sourceTree = "<group>"; };
+		594225EF3C1AEEA29993D275 /* Receipt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Receipt.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,6 +124,7 @@
 				49BA6471584733C2F4916058 /* HistorySort.swift */,
 				54F9DF65B0DD98EAFFE50940 /* ShareSheet.swift */,
 				F5C69873D8E95DEC45B4966D /* ReceiptExporter.swift */,
+				594225EF3C1AEEA29993D275 /* Receipt.swift */,
 				B246796344B89B4FC12A449A /* Assets.xcassets */,
 				5AD7A4961406206784FAB6EA /* Info.plist */,
 				CC93B959999A4B6DB55DF50F /* POGenerator.entitlements */,
@@ -224,6 +227,7 @@
 				96D8F9762E6E9C927E5A3B85 /* HistorySort.swift in Sources */,
 				ECC126961EF7A31927D8A741 /* ShareSheet.swift in Sources */,
 				4886490C9CDFD8620091076E /* ReceiptExporter.swift in Sources */,
+				A6367EF3AB482ABFA8D59DA9 /* Receipt.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
