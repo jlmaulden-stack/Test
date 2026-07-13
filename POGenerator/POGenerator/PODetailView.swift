@@ -55,13 +55,10 @@ struct PODetailView: View {
             }
 
             Section("Status") {
-                Picker(selection: statusBinding) {
+                Picker("Status", selection: statusBinding) {
                     ForEach(POStatus.allCases) { status in
                         Label(status.label, systemImage: status.systemImage).tag(status)
                     }
-                } label: {
-                    Label(current.status.label, systemImage: current.status.systemImage)
-                        .foregroundColor(current.status.color)
                 }
 
                 if let updatedBy = current.statusUpdatedByName {
