@@ -14,6 +14,9 @@ struct PODetailView: View {
     @State private var receiptPickerItems: [PhotosPickerItem] = []
     @State private var showFulfillWithoutReceiptPrompt = false
     @State private var exportPayload: ExportPayload?
+    // Set when the user chose "Add Receipt Photo" from the fulfilled prompt, so the
+    // status flips to Fulfilled once a receipt is actually added.
+    @State private var fulfillAfterReceipt = false
 
     private var current: PurchaseOrder {
         store.history.first(where: { $0.id == po.id }) ?? po
@@ -23,7 +26,10 @@ struct PODetailView: View {
     /// UIImage, which isn't Equatable.
     private var cameraBinding: Binding<UIImage?> {
         Binding(get: { nil }, set: { image in
-            if let image { store.addReceipt(image, for: current) }
+            if let image {
+                store.addReceipt(image, for: current)
+                applyPendingFulfillmentIfNeeded()
+            }
         })
     }
 
@@ -134,13 +140,16 @@ struct PODetailView: View {
         .onChange(of: receiptPickerItems) { newItems in
             guard !newItems.isEmpty else { return }
             Task {
+                var addedAny = false
                 for item in newItems {
                     if let data = try? await item.loadTransferable(type: Data.self),
                        let image = UIImage(data: data) {
                         store.addReceipt(image, for: current)
+                        addedAny = true
                     }
                 }
                 receiptPickerItems = []
+                if addedAny { applyPendingFulfillmentIfNeeded() }
             }
         }
         .fullScreenCover(isPresented: $showCameraCapture) {
@@ -152,6 +161,7 @@ struct PODetailView: View {
         }
         .alert("Add a Receipt?", isPresented: $showFulfillWithoutReceiptPrompt) {
             Button("Add Receipt Photo") {
+                fulfillAfterReceipt = true
                 // Defer so the alert finishes dismissing before the dialog presents.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     showReceiptOptions = true
@@ -166,6 +176,14 @@ struct PODetailView: View {
         }
     }
 
+    /// After a receipt is added as part of the "mark fulfilled" flow, complete the
+    /// status change.
+    private func applyPendingFulfillmentIfNeeded() {
+        guard fulfillAfterReceipt else { return }
+        fulfillAfterReceipt = false
+        store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+    }
+
     @ViewBuilder
     private var receiptsSection: some View {
         Section {
@@ -174,6 +192,7 @@ struct PODetailView: View {
             }
 
             Button {
+                fulfillAfterReceipt = false
                 showReceiptOptions = true
             } label: {
                 Label("Add Receipt Photo", systemImage: "doc.viewfinder")
@@ -209,6 +228,8 @@ private struct ReceiptRow: View {
     let po: PurchaseOrder
     let receipt: Receipt
     @State private var amountText: String = ""
+    @State private var showDeleteConfirmation = false
+    @FocusState private var amountFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -225,9 +246,10 @@ private struct ReceiptRow: View {
                     .foregroundColor(.secondary)
                 TextField("0.00", text: $amountText)
                     .keyboardType(.decimalPad)
+                    .focused($amountFocused)
 
                 Button(role: .destructive) {
-                    store.removeReceipt(receipt, for: po)
+                    showDeleteConfirmation = true
                 } label: {
                     Image(systemName: "trash")
                 }
@@ -239,13 +261,51 @@ private struct ReceiptRow: View {
             amountText = receipt.amount.map { String(format: "%.2f", $0) } ?? ""
         }
         .onChange(of: amountText) { newValue in
-            store.setReceiptAmount(parseAmount(newValue), receiptID: receipt.id, for: po)
+            // Force a valid currency entry: digits with at most one decimal point and
+            // two fractional digits.
+            let cleaned = sanitizeCurrency(newValue)
+            if cleaned != newValue {
+                amountText = cleaned
+                return
+            }
+            store.setReceiptAmount(cleaned.isEmpty ? nil : Double(cleaned), receiptID: receipt.id, for: po)
+        }
+        .onChange(of: amountFocused) { focused in
+            // Normalize to two decimals once the user leaves the field.
+            if !focused, let value = Double(amountText) {
+                amountText = String(format: "%.2f", value)
+            }
+        }
+        .confirmationDialog(
+            "Delete this receipt photo?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Receipt", role: .destructive) {
+                store.removeReceipt(receipt, for: po)
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
-    private func parseAmount(_ text: String) -> Double? {
-        let cleaned = text.filter { $0.isNumber || $0 == "." }
-        return cleaned.isEmpty ? nil : Double(cleaned)
+    /// Keeps only digits and at most one decimal point with up to two fractional digits.
+    private func sanitizeCurrency(_ text: String) -> String {
+        var result = ""
+        var hasDot = false
+        var decimals = 0
+        for ch in text {
+            if ch.isNumber {
+                if hasDot {
+                    guard decimals < 2 else { continue }
+                    decimals += 1
+                }
+                result.append(ch)
+            } else if ch == "." && !hasDot {
+                hasDot = true
+                result.append(ch)
+            }
+        }
+        return result
     }
 }
 
