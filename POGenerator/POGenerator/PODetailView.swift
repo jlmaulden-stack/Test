@@ -2,11 +2,21 @@ import SwiftUI
 
 struct PODetailView: View {
     @EnvironmentObject private var store: POStore
+    @EnvironmentObject private var authStore: AuthStore
     let po: PurchaseOrder
     @State private var notesText: String = ""
 
     private var current: PurchaseOrder {
         store.history.first(where: { $0.id == po.id }) ?? po
+    }
+
+    private var statusBinding: Binding<POStatus> {
+        Binding(
+            get: { current.status },
+            set: { newStatus in
+                store.setStatus(newStatus, for: current, by: authStore.currentUser)
+            }
+        )
     }
 
     var body: some View {
@@ -45,8 +55,14 @@ struct PODetailView: View {
             }
 
             Section("Status") {
-                Label(current.status.label, systemImage: current.status.systemImage)
-                    .foregroundColor(current.status.color)
+                Picker(selection: statusBinding) {
+                    ForEach(POStatus.allCases) { status in
+                        Label(status.label, systemImage: status.systemImage).tag(status)
+                    }
+                } label: {
+                    Label(current.status.label, systemImage: current.status.systemImage)
+                        .foregroundColor(current.status.color)
+                }
 
                 if let updatedBy = current.statusUpdatedByName {
                     LabeledContent("Updated By", value: updatedBy)
@@ -54,10 +70,6 @@ struct PODetailView: View {
                 if let updatedAt = current.statusUpdatedAt {
                     LabeledContent("Updated At", value: updatedAt.formatted(date: .abbreviated, time: .shortened))
                 }
-
-                Text("Change the status from the History list.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
             }
             .listRowBackground(Theme.panel)
 
