@@ -75,6 +75,21 @@ struct PODetailView: View {
                     }
                 }
                 .listRowBackground(Theme.panel)
+            } else if current.isDeclined {
+                Section("Declined") {
+                    Label("Request Declined", systemImage: "xmark.seal")
+                        .foregroundColor(.red)
+                    if let reason = current.declineReason, !reason.isEmpty {
+                        LabeledContent("Reason", value: reason)
+                    }
+                    if let by = current.declinedByName {
+                        LabeledContent("Declined By", value: by)
+                    }
+                    if let at = current.declinedAt {
+                        LabeledContent("Declined At", value: at.formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
+                .listRowBackground(Theme.panel)
             } else {
                 Section("Approval") {
                     Label("Pending Approval", systemImage: "clock.badge.questionmark")

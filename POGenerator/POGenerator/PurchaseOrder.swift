@@ -15,11 +15,19 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     var approvedByName: String?
     var approvedAt: Date?
     var wasSelfApproved: Bool
+    var declinedByName: String?
+    var declinedAt: Date?
+    var declineReason: String?
     var status: POStatus
     var statusUpdatedByName: String?
     var statusUpdatedAt: Date?
     var fulfillmentNotes: String
     var receipts: [Receipt]
+
+    var isDeclined: Bool { declinedAt != nil }
+
+    /// A request awaiting a decision: not yet approved and not declined.
+    var isPending: Bool { !isApproved && !isDeclined }
 
     /// Sum of every receipt's amount, ignoring receipts with no amount entered.
     var totalAmount: Double? {
@@ -41,6 +49,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         approvedByName: String? = nil,
         approvedAt: Date? = nil,
         wasSelfApproved: Bool = false,
+        declinedByName: String? = nil,
+        declinedAt: Date? = nil,
+        declineReason: String? = nil,
         status: POStatus = .new,
         statusUpdatedByName: String? = nil,
         statusUpdatedAt: Date? = nil,
@@ -60,6 +71,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         self.approvedByName = approvedByName
         self.approvedAt = approvedAt
         self.wasSelfApproved = wasSelfApproved
+        self.declinedByName = declinedByName
+        self.declinedAt = declinedAt
+        self.declineReason = declineReason
         self.status = status
         self.statusUpdatedByName = statusUpdatedByName
         self.statusUpdatedAt = statusUpdatedAt
@@ -70,6 +84,7 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, poNumber, jobNumber, customerName, sequence, createdAt, details, photoFileNames, createdByName
         case isApproved, approvedByName, approvedAt, wasSelfApproved
+        case declinedByName, declinedAt, declineReason
         case status, statusUpdatedByName, statusUpdatedAt, fulfillmentNotes, receipts
     }
 
@@ -100,6 +115,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         approvedByName = try container.decodeIfPresent(String.self, forKey: .approvedByName)
         approvedAt = try container.decodeIfPresent(Date.self, forKey: .approvedAt)
         wasSelfApproved = try container.decodeIfPresent(Bool.self, forKey: .wasSelfApproved) ?? false
+        declinedByName = try container.decodeIfPresent(String.self, forKey: .declinedByName)
+        declinedAt = try container.decodeIfPresent(Date.self, forKey: .declinedAt)
+        declineReason = try container.decodeIfPresent(String.self, forKey: .declineReason)
 
         let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
 

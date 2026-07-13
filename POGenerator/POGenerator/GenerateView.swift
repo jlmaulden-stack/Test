@@ -120,6 +120,11 @@ struct GenerateView: View {
                                     .font(.system(.largeTitle, design: .monospaced))
                                     .bold()
                                     .foregroundColor(Theme.accent)
+                            } else if po.isDeclined {
+                                Text("DECLINED")
+                                    .font(.system(.headline, design: .monospaced))
+                                    .bold()
+                                    .foregroundColor(.red)
                             } else {
                                 Text("PENDING APPROVAL")
                                     .font(.system(.headline, design: .monospaced))
@@ -138,6 +143,12 @@ struct GenerateView: View {
                                 showCopiedToast = true
                             } label: {
                                 Label("Copy PO Number", systemImage: "doc.on.doc")
+                            }
+                        } else if po.isDeclined {
+                            if let reason = po.declineReason, !reason.isEmpty {
+                                Text("Reason: \(reason)")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
                             }
                         } else {
                             Text("A PO number is assigned once this request is approved.")

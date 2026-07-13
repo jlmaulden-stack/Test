@@ -45,6 +45,12 @@ struct HistoryView: View {
                                             .foregroundColor(Theme.accent)
                                         Spacer()
                                         statusMenu(for: po)
+                                    } else if po.isDeclined {
+                                        Label("DECLINED", systemImage: "xmark.seal")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .bold()
+                                            .foregroundColor(.red)
+                                        Spacer()
                                     } else {
                                         Label("PENDING APPROVAL", systemImage: "clock.badge.questionmark")
                                             .font(.system(.caption, design: .monospaced))

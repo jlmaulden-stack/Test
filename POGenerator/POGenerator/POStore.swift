@@ -11,6 +11,11 @@ final class POStore: ObservableObject {
     @Published var isLoadingHistory = false
     @Published var errorMessage: String?
 
+    /// Number of requests still awaiting a decision -- drives the app-icon badge.
+    var pendingCount: Int {
+        history.filter(\.isPending).count
+    }
+
     private let defaults = UserDefaults.standard
     private let historyKey = "POStore.history"
     private let countsKey = "POStore.jobCounts"
@@ -56,12 +61,19 @@ final class POStore: ObservableObject {
         lastGenerated = po
         jobNumber = ""
         customerName = ""
+
+        NotificationManager.notifyNewRequest(
+            requester: account.username,
+            customerName: trimmedCustomer,
+            jobNumber: trimmedJob
+        )
+        updateBadge()
     }
 
     /// Approves a pending request, assigning its sequence number and PO number now.
     func approve(_ po: PurchaseOrder, by account: Account?, selfApproved: Bool) {
         guard let index = history.firstIndex(where: { $0.id == po.id }),
-              !history[index].isApproved
+              history[index].isPending
         else { return }
 
         let job = history[index].jobNumber
@@ -81,6 +93,21 @@ final class POStore: ObservableObject {
         history[index].wasSelfApproved = selfApproved
         syncLastGenerated(with: index)
         saveHistory()
+        updateBadge()
+    }
+
+    /// Declines a pending request with a required reason. No PO number is assigned.
+    func decline(_ po: PurchaseOrder, by account: Account?, reason: String) {
+        guard let index = history.firstIndex(where: { $0.id == po.id }),
+              history[index].isPending
+        else { return }
+
+        history[index].declinedByName = account?.username
+        history[index].declinedAt = Date()
+        history[index].declineReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        syncLastGenerated(with: index)
+        saveHistory()
+        updateBadge()
     }
 
     func setStatus(_ status: POStatus, for po: PurchaseOrder, by account: Account?) {
@@ -144,11 +171,16 @@ final class POStore: ObservableObject {
         }
     }
 
+    private func updateBadge() {
+        NotificationManager.updateBadge(count: pendingCount)
+    }
+
     func loadHistory() async {
         isLoadingHistory = true
         errorMessage = nil
         defer { isLoadingHistory = false }
         history = loadHistoryFromDisk()
+        updateBadge()
     }
 
     private func saveHistory() {
