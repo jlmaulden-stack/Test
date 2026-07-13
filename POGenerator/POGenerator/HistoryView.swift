@@ -5,13 +5,18 @@ struct HistoryView: View {
     @EnvironmentObject private var authStore: AuthStore
     @State private var searchText = ""
     @State private var sort: HistorySort = .dateNewest
+    @State private var statusFilter: POStatus?
 
-    /// History filtered by the search term (customer name or job number) and sorted.
+    /// History filtered by the status filter and the search term (customer name or
+    /// job number), then sorted.
     private var displayedHistory: [PurchaseOrder] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filtered = query.isEmpty ? store.history : store.history.filter {
-            $0.customerName.lowercased().contains(query)
-                || $0.jobNumber.lowercased().contains(query)
+        let filtered = store.history.filter { po in
+            let matchesStatus = statusFilter == nil || po.status == statusFilter
+            let matchesQuery = query.isEmpty
+                || po.customerName.lowercased().contains(query)
+                || po.jobNumber.lowercased().contains(query)
+            return matchesStatus && matchesQuery
         }
         return sort.sorted(filtered)
     }
@@ -60,6 +65,9 @@ struct HistoryView: View {
             .searchable(text: $searchText, prompt: "Customer or job number")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    filterMenu
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     sortMenu
                 }
             }
@@ -93,7 +101,7 @@ struct HistoryView: View {
                 .foregroundColor(Theme.steel)
             Text("No Matches")
                 .font(.headline)
-            Text("No purchase orders match \"\(searchText)\".")
+            Text(noMatchesDescription)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -101,6 +109,37 @@ struct HistoryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
+    }
+
+    private var noMatchesDescription: String {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch (trimmed.isEmpty, statusFilter) {
+        case (false, .some(let status)):
+            return "No \(status.label) purchase orders match \"\(trimmed)\"."
+        case (false, .none):
+            return "No purchase orders match \"\(trimmed)\"."
+        case (true, .some(let status)):
+            return "No purchase orders are marked \(status.label)."
+        case (true, .none):
+            return "No purchase orders to show."
+        }
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Picker("Filter by Status", selection: $statusFilter) {
+                Label("All Statuses", systemImage: "line.3.horizontal.decrease")
+                    .tag(POStatus?.none)
+                ForEach(POStatus.allCases) { status in
+                    Label(status.label, systemImage: status.systemImage)
+                        .tag(POStatus?.some(status))
+                }
+            }
+        } label: {
+            Label("Filter", systemImage: statusFilter == nil
+                ? "line.3.horizontal.decrease.circle"
+                : "line.3.horizontal.decrease.circle.fill")
+        }
     }
 
     private var sortMenu: some View {
@@ -130,8 +169,9 @@ struct HistoryView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .foregroundColor(po.status.color)
-                // Constant footprint so the row is the same size for every status.
-                .frame(width: 108, alignment: .trailing)
+                // Fixed-width, leading-aligned block keeps the icon in the same
+                // vertical column across rows so it doesn't shift as the label changes.
+                .frame(width: 112, alignment: .leading)
         }
         .menuStyle(.borderlessButton)
     }
