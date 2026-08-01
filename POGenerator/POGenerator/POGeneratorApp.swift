@@ -21,6 +21,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         NotificationManager.requestAuthorization()
+        // CloudKit delivers its subscription pushes through APNs.
+        application.registerForRemoteNotifications()
+        Task {
+            await CloudKitManager.shared.subscribeToNewRequestNotifications()
+        }
         return true
     }
 

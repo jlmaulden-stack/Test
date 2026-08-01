@@ -42,6 +42,13 @@ enum PhotoStore {
         FileManager.default.fileExists(atPath: url(fileName: fileName).path)
     }
 
+    /// Writes raw image data (e.g. a downloaded CloudKit asset) under the given name,
+    /// skipping the write if the file already exists (photos are immutable).
+    static func writeIfMissing(_ data: Data, fileName: String) {
+        guard !fileExists(fileName: fileName) else { return }
+        try? data.write(to: url(fileName: fileName), options: .atomic)
+    }
+
     static func delete(fileName: String) {
         try? FileManager.default.removeItem(at: url(fileName: fileName))
     }

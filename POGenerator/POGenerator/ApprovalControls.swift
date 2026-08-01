@@ -17,7 +17,7 @@ struct ApprovalControls: View {
     var body: some View {
         if isManager {
             Button {
-                store.approve(po, by: authStore.currentUser, selfApproved: false)
+                Task { await store.approve(po, by: authStore.currentUser, selfApproved: false) }
             } label: {
                 Label("Approve PO", systemImage: "checkmark.seal")
             }
@@ -29,7 +29,7 @@ struct ApprovalControls: View {
             }
             .alert("Self-Approve PO?", isPresented: $showSelfApproveWarning) {
                 Button("Self-Approve", role: .destructive) {
-                    store.approve(po, by: authStore.currentUser, selfApproved: true)
+                    Task { await store.approve(po, by: authStore.currentUser, selfApproved: true) }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {

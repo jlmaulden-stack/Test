@@ -16,6 +16,7 @@ final class POStore: ObservableObject {
         history.filter(\.isPending).count
     }
 
+    private let cloud = CloudKitManager.shared
     private let defaults = UserDefaults.standard
     private let historyKey = "POStore.history"
     private let countsKey = "POStore.jobCounts"
@@ -68,18 +69,29 @@ final class POStore: ObservableObject {
             jobNumber: trimmedJob
         )
         updateBadge()
+        pushToCloud(po)
     }
 
     /// Approves a pending request, assigning its sequence number and PO number now.
-    func approve(_ po: PurchaseOrder, by account: Account?, selfApproved: Bool) {
+    /// The sequence comes from the shared CloudKit counter so approvals from different
+    /// phones never collide; if iCloud is unreachable it falls back to the device-local
+    /// counter and surfaces a warning.
+    func approve(_ po: PurchaseOrder, by account: Account?, selfApproved: Bool) async {
         guard let index = history.firstIndex(where: { $0.id == po.id }),
               history[index].isPending
         else { return }
 
         let job = history[index].jobNumber
         let key = job.lowercased()
-        let sequence = (jobCounts[key] ?? 0) + 1
-        jobCounts[key] = sequence
+
+        let sequence: Int
+        do {
+            sequence = try await cloud.reserveNextSequence(forJobNumber: job)
+        } catch {
+            sequence = (jobCounts[key] ?? 0) + 1
+            errorMessage = "Approved without iCloud — this PO number may not be unique across devices. \(error.localizedDescription)"
+        }
+        jobCounts[key] = max(jobCounts[key] ?? 0, sequence)
 
         history[index].sequence = sequence
         history[index].poNumber = PONumberFormatter.poNumber(
@@ -94,6 +106,7 @@ final class POStore: ObservableObject {
         syncLastGenerated(with: index)
         saveHistory()
         updateBadge()
+        pushToCloud(history[index])
     }
 
     /// Declines a pending request with a required reason. No PO number is assigned.
@@ -108,6 +121,7 @@ final class POStore: ObservableObject {
         syncLastGenerated(with: index)
         saveHistory()
         updateBadge()
+        pushToCloud(history[index])
     }
 
     func setStatus(_ status: POStatus, for po: PurchaseOrder, by account: Account?) {
@@ -119,6 +133,7 @@ final class POStore: ObservableObject {
             lastGenerated = history[index]
         }
         saveHistory()
+        pushToCloud(history[index])
     }
 
     func setFulfillmentNotes(_ notes: String, for po: PurchaseOrder) {
@@ -128,6 +143,7 @@ final class POStore: ObservableObject {
             lastGenerated = history[index]
         }
         saveHistory()
+        pushToCloud(history[index])
     }
 
     @discardableResult
@@ -138,6 +154,7 @@ final class POStore: ObservableObject {
         history[index].receipts.append(Receipt(id: receiptID, photoFileName: fileName, amount: nil))
         syncLastGenerated(with: index)
         saveHistory()
+        pushToCloud(history[index])
         return receiptID
     }
 
@@ -155,6 +172,7 @@ final class POStore: ObservableObject {
         history[poIndex].receipts[receiptIndex].amount = amount
         syncLastGenerated(with: poIndex)
         saveHistory()
+        pushToCloud(history[poIndex])
     }
 
     func removeReceipt(_ receipt: Receipt, for po: PurchaseOrder) {
@@ -163,6 +181,7 @@ final class POStore: ObservableObject {
         history[index].receipts.removeAll { $0.id == receipt.id }
         syncLastGenerated(with: index)
         saveHistory()
+        pushToCloud(history[index])
     }
 
     private func syncLastGenerated(with index: Int) {
@@ -175,11 +194,35 @@ final class POStore: ObservableObject {
         NotificationManager.updateBadge(count: pendingCount)
     }
 
+    /// Uploads the PO to CloudKit in the background. Local state is already saved, so
+    /// a failure just surfaces a message; the next successful push or fetch reconciles.
+    private func pushToCloud(_ po: PurchaseOrder) {
+        Task {
+            do {
+                try await cloud.save(po)
+            } catch {
+                errorMessage = "iCloud sync failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Loads history from CloudKit (merging in any local records that haven't reached
+    /// the cloud yet); falls back to the on-device cache when iCloud is unreachable.
     func loadHistory() async {
         isLoadingHistory = true
         errorMessage = nil
         defer { isLoadingHistory = false }
-        history = loadHistoryFromDisk()
+
+        do {
+            let remote = try await cloud.fetchHistory()
+            let remoteIDs = Set(remote.map(\.id))
+            let localOnly = loadHistoryFromDisk().filter { !remoteIDs.contains($0.id) }
+            history = (remote + localOnly).sorted { $0.createdAt > $1.createdAt }
+            saveHistory()
+        } catch {
+            errorMessage = error.localizedDescription
+            history = loadHistoryFromDisk()
+        }
         updateBadge()
     }
 
