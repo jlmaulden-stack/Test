@@ -106,7 +106,14 @@ final class CloudKitManager {
         let query = CKQuery(recordType: "PurchaseOrder", predicate: NSPredicate(value: true))
         query.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
 
-        let (matchResults, _) = try await database.records(matching: query, resultsLimit: limit)
+        let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
+        do {
+            (matchResults, _) = try await database.records(matching: query, resultsLimit: limit)
+        } catch let error as CKError where error.code == .unknownItem {
+            // Record type not created yet (nothing has ever been saved) -- same as empty.
+            return []
+        }
+
         return matchResults.compactMap { _, result in
             guard let record = try? result.get() else { return nil }
             return purchaseOrder(from: record)
@@ -139,7 +146,14 @@ final class CloudKitManager {
         try await checkAccountStatus()
 
         let query = CKQuery(recordType: "Account", predicate: NSPredicate(value: true))
-        let (matchResults, _) = try await database.records(matching: query, resultsLimit: 500)
+        let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
+        do {
+            (matchResults, _) = try await database.records(matching: query, resultsLimit: 500)
+        } catch let error as CKError where error.code == .unknownItem {
+            // No Account record type yet -- treat as an empty roster, not a failure.
+            return []
+        }
+
         return matchResults.compactMap { _, result in
             guard let record = try? result.get(),
                   let username = record["username"] as? String, !username.isEmpty
