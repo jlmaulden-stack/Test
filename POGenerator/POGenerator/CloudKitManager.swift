@@ -132,6 +132,51 @@ final class CloudKitManager {
         _ = try? await database.save(subscription)
     }
 
+    // MARK: - Accounts
+
+    /// Fetches the shared team roster so a fresh install can log into existing accounts.
+    func fetchAccounts() async throws -> [Account] {
+        try await checkAccountStatus()
+
+        let query = CKQuery(recordType: "Account", predicate: NSPredicate(value: true))
+        let (matchResults, _) = try await database.records(matching: query, resultsLimit: 500)
+        return matchResults.compactMap { _, result in
+            guard let record = try? result.get(),
+                  let username = record["username"] as? String, !username.isEmpty
+            else { return nil }
+            return Account(
+                id: record.recordID.recordName,
+                username: username,
+                passwordHash: record["passwordHash"] as? String ?? "",
+                passwordSalt: record["passwordSalt"] as? String ?? "",
+                isManager: (record["isManager"] as? Int64 ?? 0) != 0
+            )
+        }
+    }
+
+    /// Upserts one account record (created, or password reset).
+    func save(_ account: Account) async throws {
+        try await checkAccountStatus()
+
+        let recordID = CKRecord.ID(recordName: account.id)
+        let record: CKRecord
+        do {
+            record = try await database.record(for: recordID)
+        } catch let error as CKError where error.code == .unknownItem {
+            record = CKRecord(recordType: "Account", recordID: recordID)
+        }
+        record["username"] = account.username
+        record["passwordHash"] = account.passwordHash
+        record["passwordSalt"] = account.passwordSalt
+        record["isManager"] = Int64(account.isManager ? 1 : 0)
+        try await modify(record, savePolicy: .changedKeys)
+    }
+
+    func deleteAccount(id: String) async throws {
+        try await checkAccountStatus()
+        _ = try await database.deleteRecord(withID: CKRecord.ID(recordName: id))
+    }
+
     // MARK: - Record mapping
 
     private func apply(_ po: PurchaseOrder, to record: CKRecord) {

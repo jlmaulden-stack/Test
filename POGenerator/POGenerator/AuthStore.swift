@@ -1,24 +1,68 @@
 import Foundation
 
-/// Manager-provisioned accounts, stored locally. The first account created on a fresh
-/// install becomes a manager; only managers can create further accounts or reset
-/// passwords. There's no self-service password reset — a locked-out employee asks
-/// their manager, who resets it from the Account tab.
+/// Manager-provisioned accounts, synced through the shared CloudKit database so every
+/// device sees the same team roster: a fresh install fetches existing accounts and
+/// logs into them instead of creating a new "first manager". The local UserDefaults
+/// copy is an offline cache. Only managers create accounts or reset passwords — a
+/// locked-out employee asks their manager, who resets it from the Account tab.
 @MainActor
 final class AuthStore: ObservableObject {
     @Published var accounts: [Account] = []
     @Published var currentUser: Account?
+    @Published var isSyncing = false
+    @Published var hasSyncedOnce = false
+    @Published var syncErrorMessage: String?
 
+    private let cloud = CloudKitManager.shared
     private let defaults = UserDefaults.standard
     private let accountsKey = "AuthStore.accounts"
     private let currentUserIDKey = "AuthStore.currentUserID"
 
-    var needsSetup: Bool { accounts.isEmpty }
+    /// Only offer "create the first manager" once a cloud check has confirmed the
+    /// team really has no accounts (or the cache already has some).
+    var needsSetup: Bool { accounts.isEmpty && hasSyncedOnce }
 
     init() {
         accounts = Self.loadAccounts(from: defaults, key: accountsKey)
+        if !accounts.isEmpty {
+            hasSyncedOnce = true
+        }
         if let id = defaults.string(forKey: currentUserIDKey) {
             currentUser = accounts.first { $0.id == id }
+        }
+    }
+
+    /// Pulls the shared roster from CloudKit, merging in local accounts that haven't
+    /// reached the cloud yet. Falls back to the cache when iCloud is unreachable.
+    func refreshAccounts() async {
+        isSyncing = true
+        syncErrorMessage = nil
+        defer {
+            isSyncing = false
+            hasSyncedOnce = true
+        }
+
+        do {
+            let remote = try await cloud.fetchAccounts()
+            let remoteIDs = Set(remote.map(\.id))
+            let localOnly = accounts.filter { !remoteIDs.contains($0.id) }
+            accounts = remote + localOnly
+            saveAccounts()
+            // Keep the session pointing at the fresh copy (password may have been
+            // reset remotely); drop it if the account was deleted remotely.
+            if let id = currentUser?.id {
+                if let refreshed = accounts.first(where: { $0.id == id }) {
+                    currentUser = refreshed
+                } else {
+                    logOut()
+                }
+            }
+            // Re-push local-only stragglers so both sides converge.
+            for account in localOnly {
+                pushToCloud(account)
+            }
+        } catch {
+            syncErrorMessage = error.localizedDescription
         }
     }
 
@@ -51,6 +95,7 @@ final class AuthStore: ObservableObject {
         )
         accounts.append(account)
         saveAccounts()
+        pushToCloud(account)
         return true
     }
 
@@ -84,6 +129,7 @@ final class AuthStore: ObservableObject {
         if currentUser?.id == account.id {
             currentUser = accounts[index]
         }
+        pushToCloud(accounts[index])
         return true
     }
 
@@ -95,6 +141,23 @@ final class AuthStore: ObservableObject {
         saveAccounts()
         if currentUser?.id == account.id {
             logOut()
+        }
+        Task {
+            do {
+                try await cloud.deleteAccount(id: account.id)
+            } catch {
+                syncErrorMessage = "iCloud sync failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func pushToCloud(_ account: Account) {
+        Task {
+            do {
+                try await cloud.save(account)
+            } catch {
+                syncErrorMessage = "iCloud sync failed: \(error.localizedDescription)"
+            }
         }
     }
 

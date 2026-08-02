@@ -10,7 +10,17 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if authStore.needsSetup {
+                if !authStore.hasSyncedOnce {
+                    Section {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Checking for your team's accounts…")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .listRowBackground(Theme.panel)
+                } else if authStore.needsSetup {
                     Section("Create Manager Account") {
                         Text("No accounts exist yet. Create the first one — it becomes a manager account that can create and manage everyone else's logins.")
                             .font(.footnote)
@@ -24,6 +34,19 @@ struct LoginView: View {
                             createManagerAccount()
                         }
                         .disabled(username.trimmingCharacters(in: .whitespaces).isEmpty || password.isEmpty)
+                    }
+                    .listRowBackground(Theme.panel)
+
+                    Section {
+                        Text("Expecting an existing account? Make sure this device is signed in to iCloud, then check again.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                        Button {
+                            Task { await authStore.refreshAccounts() }
+                        } label: {
+                            Label("Check Again", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(authStore.isSyncing)
                     }
                     .listRowBackground(Theme.panel)
                 } else {
@@ -43,6 +66,12 @@ struct LoginView: View {
                         Text("Forgot your password? Ask your manager to reset it from the Account tab.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
+                        Button {
+                            Task { await authStore.refreshAccounts() }
+                        } label: {
+                            Label("Refresh Accounts", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(authStore.isSyncing)
                     }
                     .listRowBackground(Theme.panel)
                 }
@@ -55,9 +84,21 @@ struct LoginView: View {
                     }
                     .listRowBackground(Theme.panel)
                 }
+
+                if let syncError = authStore.syncErrorMessage {
+                    Section {
+                        Text("Couldn't reach iCloud: \(syncError)")
+                            .foregroundColor(.orange)
+                            .font(.footnote)
+                    }
+                    .listRowBackground(Theme.panel)
+                }
             }
             .industrialForm()
             .navigationTitle("PO GENERATOR")
+            .task {
+                await authStore.refreshAccounts()
+            }
         }
     }
 

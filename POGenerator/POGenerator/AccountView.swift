@@ -8,6 +8,7 @@ struct AccountView: View {
     @State private var resetTarget: Account?
     @State private var resetPasswordText = ""
     @State private var errorMessage: String?
+    @State private var showLogOutConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -21,7 +22,7 @@ struct AccountView: View {
                                 .foregroundColor(.secondary)
                         }
                         Button("Log Out", role: .destructive) {
-                            authStore.logOut()
+                            showLogOutConfirmation = true
                         }
                     }
                     .listRowBackground(Theme.panel)
@@ -108,6 +109,21 @@ struct AccountView: View {
                 }
             } message: { account in
                 Text("Set a new password for \(account.username).")
+            }
+            .confirmationDialog(
+                "Log out of this account?",
+                isPresented: $showLogOutConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Log Out", role: .destructive) {
+                    authStore.logOut()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You'll need your username and password to log back in.")
+            }
+            .task {
+                await authStore.refreshAccounts()
             }
         }
     }
