@@ -1,5 +1,12 @@
 import SwiftUI
 
+/// Navigation target for a PO, optionally carrying the intent to immediately prompt
+/// for a receipt (when Fulfilled was picked from the History menu on a PO with none).
+struct PORoute: Hashable {
+    let po: PurchaseOrder
+    var promptFulfill: Bool = false
+}
+
 struct HistoryView: View {
     @EnvironmentObject private var store: POStore
     @EnvironmentObject private var authStore: AuthStore
@@ -7,6 +14,7 @@ struct HistoryView: View {
     @State private var sort: HistorySort = .dateNewest
     @State private var statusFilter: POStatus?
     @State private var exportPayload: ExportPayload?
+    @State private var path: [PORoute] = []
 
     private var hasReceipts: Bool {
         store.history.contains { !$0.receipts.isEmpty }
@@ -27,7 +35,7 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if store.history.isEmpty && !store.isLoadingHistory {
                     emptyState
@@ -35,7 +43,7 @@ struct HistoryView: View {
                     noMatchesState
                 } else {
                     List(displayedHistory) { po in
-                        NavigationLink(value: po) {
+                        NavigationLink(value: PORoute(po: po)) {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     if po.isApproved {
@@ -72,8 +80,8 @@ struct HistoryView: View {
                     }
                     .scrollContentBackground(.hidden)
                     .background(Theme.background)
-                    .navigationDestination(for: PurchaseOrder.self) { po in
-                        PODetailView(po: po)
+                    .navigationDestination(for: PORoute.self) { route in
+                        PODetailView(po: route.po, promptFulfillOnAppear: route.promptFulfill)
                     }
                     .refreshable {
                         await store.loadHistory()
@@ -188,7 +196,13 @@ struct HistoryView: View {
         Menu {
             ForEach(POStatus.allCases) { status in
                 Button {
-                    store.setStatus(status, for: po, by: authStore.currentUser)
+                    if status == .fulfilled && po.receipts.isEmpty {
+                        // Receipts are requested before fulfilling, and that prompt
+                        // lives on the detail page -- open it there instead.
+                        path.append(PORoute(po: po, promptFulfill: true))
+                    } else {
+                        store.setStatus(status, for: po, by: authStore.currentUser)
+                    }
                 } label: {
                     Label(status.label, systemImage: status.systemImage)
                 }

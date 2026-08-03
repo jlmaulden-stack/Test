@@ -6,7 +6,11 @@ struct PODetailView: View {
     @EnvironmentObject private var store: POStore
     @EnvironmentObject private var authStore: AuthStore
     let po: PurchaseOrder
+    /// Set when arriving from History's status menu after picking Fulfilled on a PO
+    /// with no receipts, so the receipt prompt appears without a second tap.
+    var promptFulfillOnAppear: Bool = false
 
+    @State private var hasAutoPrompted = false
     @State private var notesText: String = ""
     @State private var showReceiptOptions = false
     @State private var showCameraCapture = false
@@ -181,6 +185,7 @@ struct PODetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             notesText = current.fulfillmentNotes
+            autoPromptFulfillIfNeeded()
         }
         .onChange(of: notesText) { newValue in
             store.setFulfillmentNotes(newValue, for: current)
@@ -267,6 +272,22 @@ struct PODetailView: View {
 
     private var promptPresented: Binding<Bool> {
         Binding(get: { activePrompt != nil }, set: { if !$0 { activePrompt = nil } })
+    }
+
+    /// Arriving from History's status menu: honor the Fulfilled intent by showing the
+    /// receipt prompt (or, if a receipt landed meanwhile, just fulfilling). Runs once.
+    private func autoPromptFulfillIfNeeded() {
+        guard promptFulfillOnAppear, !hasAutoPrompted, current.isApproved else { return }
+        hasAutoPrompted = true
+
+        guard current.receipts.isEmpty else {
+            store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+            return
+        }
+        // Let the push transition finish before presenting.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            activePrompt = .fulfillWithoutReceipt
+        }
     }
 
     /// After a receipt is added as part of the "mark fulfilled" flow, complete the
