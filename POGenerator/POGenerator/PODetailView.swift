@@ -12,19 +12,27 @@ struct PODetailView: View {
     @State private var showCameraCapture = false
     @State private var showPhotoLibraryPicker = false
     @State private var receiptPickerItems: [PhotosPickerItem] = []
-    @State private var showFulfillWithoutReceiptPrompt = false
     @State private var exportPayload: ExportPayload?
     // Set when the user chose "Add Receipt Photo" from the fulfilled prompt, so the
     // status flips to Fulfilled once a receipt is actually added.
     @State private var fulfillAfterReceipt = false
     // Receipts awaiting a required dollar amount, prompted one at a time as uploaded.
     @State private var pendingAmountReceiptIDs: [String] = []
-    @State private var amountPrompt: AmountPrompt?
     @State private var amountPromptText = ""
+    // Single alert slot: SwiftUI only honors one .alert per view, so both prompts
+    // share this one. Two stacked .alert modifiers silently dropped one of them.
+    @State private var activePrompt: ActivePrompt?
 
-    private struct AmountPrompt: Identifiable {
-        let id = UUID()
-        let receiptID: String
+    private enum ActivePrompt: Identifiable {
+        case fulfillWithoutReceipt
+        case receiptAmount(receiptID: String)
+
+        var id: String {
+            switch self {
+            case .fulfillWithoutReceipt: return "fulfill"
+            case .receiptAmount(let receiptID): return "amount-\(receiptID)"
+            }
+        }
     }
 
     private var current: PurchaseOrder {
@@ -54,7 +62,11 @@ struct PODetailView: View {
                 // Nudge the user to attach a receipt before marking fulfilled, but let
                 // them bypass it.
                 if newStatus == .fulfilled && current.receipts.isEmpty {
-                    showFulfillWithoutReceiptPrompt = true
+                    // Defer so the Picker's pushed selection screen finishes popping;
+                    // presenting mid-transition swallows the alert.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        activePrompt = .fulfillWithoutReceipt
+                    }
                 } else {
                     store.setStatus(newStatus, for: current, by: authStore.currentUser)
                 }
@@ -206,44 +218,55 @@ struct PODetailView: View {
         .sheet(item: $exportPayload) { payload in
             ShareSheet(items: payload.urls)
         }
-        .alert("Add a Receipt?", isPresented: $showFulfillWithoutReceiptPrompt) {
-            Button("Add Receipt Photo") {
-                fulfillAfterReceipt = true
-                // Defer so the alert finishes dismissing before the dialog presents.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    showReceiptOptions = true
+        .alert(promptTitle, isPresented: promptPresented, presenting: activePrompt) { prompt in
+            switch prompt {
+            case .fulfillWithoutReceipt:
+                Button("Add Receipt Photo") {
+                    fulfillAfterReceipt = true
+                    // Defer so the alert finishes dismissing before the dialog presents.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        showReceiptOptions = true
+                    }
+                }
+                Button("Mark Fulfilled Anyway") {
+                    store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+                }
+                Button("Cancel", role: .cancel) {}
+
+            case .receiptAmount(let receiptID):
+                TextField("0.00", text: $amountPromptText)
+                    .keyboardType(.decimalPad)
+                Button("Save") {
+                    if let amount = parseAmount(amountPromptText), amount > 0 {
+                        store.setReceiptAmount(amount, receiptID: receiptID, for: current)
+                    } else {
+                        // A dollar amount is required, so discard a receipt left without one.
+                        store.removeReceipt(id: receiptID, for: current)
+                    }
+                    finishAmountPrompt()
+                }
+                Button("Cancel", role: .cancel) {
+                    store.removeReceipt(id: receiptID, for: current)
+                    finishAmountPrompt()
                 }
             }
-            Button("Mark Fulfilled Anyway") {
-                store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+        } message: { prompt in
+            switch prompt {
+            case .fulfillWithoutReceipt:
+                Text("Marking this PO fulfilled usually includes a receipt photo. Add one now, or mark it fulfilled anyway.")
+            case .receiptAmount:
+                Text("A dollar amount is required for each receipt. Cancelling discards this receipt photo.")
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Marking this PO fulfilled usually includes a receipt photo. Add one now, or mark it fulfilled anyway.")
-        }
-        .alert("Enter Receipt Amount", isPresented: amountPromptPresented, presenting: amountPrompt) { prompt in
-            TextField("0.00", text: $amountPromptText)
-                .keyboardType(.decimalPad)
-            Button("Save") {
-                if let amount = parseAmount(amountPromptText), amount > 0 {
-                    store.setReceiptAmount(amount, receiptID: prompt.receiptID, for: current)
-                } else {
-                    // A dollar amount is required, so discard a receipt left without one.
-                    store.removeReceipt(id: prompt.receiptID, for: current)
-                }
-                finishAmountPrompt()
-            }
-            Button("Cancel", role: .cancel) {
-                store.removeReceipt(id: prompt.receiptID, for: current)
-                finishAmountPrompt()
-            }
-        } message: { _ in
-            Text("A dollar amount is required for each receipt. Cancelling discards this receipt photo.")
         }
     }
 
-    private var amountPromptPresented: Binding<Bool> {
-        Binding(get: { amountPrompt != nil }, set: { if !$0 { amountPrompt = nil } })
+    private var promptTitle: String {
+        if case .receiptAmount = activePrompt { return "Enter Receipt Amount" }
+        return "Add a Receipt?"
+    }
+
+    private var promptPresented: Binding<Bool> {
+        Binding(get: { activePrompt != nil }, set: { if !$0 { activePrompt = nil } })
     }
 
     /// After a receipt is added as part of the "mark fulfilled" flow, complete the
@@ -258,15 +281,15 @@ struct PODetailView: View {
     /// so any dismissing camera/library/alert presentation clears first.
     private func scheduleNextAmountPrompt() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            guard amountPrompt == nil, !pendingAmountReceiptIDs.isEmpty else { return }
+            guard activePrompt == nil, !pendingAmountReceiptIDs.isEmpty else { return }
             let next = pendingAmountReceiptIDs.removeFirst()
             amountPromptText = ""
-            amountPrompt = AmountPrompt(receiptID: next)
+            activePrompt = .receiptAmount(receiptID: next)
         }
     }
 
     private func finishAmountPrompt() {
-        amountPrompt = nil
+        activePrompt = nil
         scheduleNextAmountPrompt()
     }
 
