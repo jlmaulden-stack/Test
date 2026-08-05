@@ -80,6 +80,18 @@ struct PODetailView: View {
 
     var body: some View {
         Form {
+            if let syncError = store.errorMessage {
+                Section {
+                    Label("Not saved to iCloud", systemImage: "exclamationmark.icloud")
+                        .foregroundColor(.red)
+                    Text(syncError)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Button("Dismiss") { store.errorMessage = nil }
+                }
+                .listRowBackground(Theme.panel)
+            }
+
             if current.isApproved {
                 Section("PO Number") {
                     Text(current.poNumber)

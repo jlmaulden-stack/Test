@@ -89,6 +89,23 @@ struct HistoryView: View {
                 }
             }
             .navigationTitle("HISTORY")
+            .safeAreaInset(edge: .top) {
+                if let syncError = store.errorMessage {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("iCloud sync problem", systemImage: "exclamationmark.icloud")
+                            .font(.footnote)
+                            .bold()
+                            .foregroundColor(.red)
+                        Text(syncError)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Theme.panel)
+                    .onTapGesture { store.errorMessage = nil }
+                }
+            }
             .searchable(text: $searchText, prompt: "Customer or job number")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
