@@ -86,6 +86,12 @@ struct AccountView: View {
                     }
                     .listRowBackground(Theme.panel)
                 }
+
+                Section("App Version") {
+                    LabeledContent("Version", value: Self.appVersion)
+                    LabeledContent("Data", value: Self.cloudEnvironment)
+                }
+                .listRowBackground(Theme.panel)
             }
             .industrialForm()
             .navigationTitle("ACCOUNT")
@@ -126,6 +132,26 @@ struct AccountView: View {
                 await authStore.refreshAccounts()
             }
         }
+    }
+
+    /// Marketing version and build number, e.g. "1.0 (5)" -- match this against the
+    /// build you uploaded to confirm which code a device is actually running.
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
+    }
+
+    /// Which CloudKit environment this build talks to. Debug builds (run from Xcode)
+    /// use Development; TestFlight and App Store builds use Production, and the two
+    /// databases share no records.
+    private static var cloudEnvironment: String {
+        #if DEBUG
+        return "iCloud Development"
+        #else
+        return "iCloud Production"
+        #endif
     }
 
     private func addAccount() {
