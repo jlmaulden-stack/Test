@@ -219,6 +219,12 @@ final class POStore: ObservableObject {
             let localOnly = loadHistoryFromDisk().filter { !remoteIDs.contains($0.id) }
             history = (remote + localOnly).sorted { $0.createdAt > $1.createdAt }
             saveHistory()
+
+            // Retry anything that never reached the cloud (created while iCloud was
+            // unreachable or the schema was rejecting saves), so a refresh heals it.
+            for po in localOnly {
+                pushToCloud(po)
+            }
         } catch {
             errorMessage = error.localizedDescription
             history = loadHistoryFromDisk()
