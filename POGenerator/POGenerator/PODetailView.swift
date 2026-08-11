@@ -27,6 +27,9 @@ struct PODetailView: View {
     @State private var showMailComposer = false
     @State private var showMailUnavailable = false
     @State private var showArchiveConfirmation = false
+    /// Set when fulfillment happens while receipt-amount prompts are still queued, so
+    /// the summary composer opens after the last one instead of fighting it.
+    @State private var mailAfterPrompts = false
 
     /// Identifies which photo the full-screen viewer is showing.
     private struct PhotoSelection: Identifiable {
@@ -410,7 +413,15 @@ struct PODetailView: View {
     private func markFulfilled() {
         store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
         guard POMail.canSend else { return }
-        // Let any dismissing alert/dialog clear before presenting the composer.
+
+        // A sheet can't present over an alert. If receipts are still waiting on their
+        // amounts, hand off to scheduleNextAmountPrompt, which opens the composer once
+        // the queue drains.
+        if activePrompt != nil || !pendingAmountReceiptIDs.isEmpty {
+            mailAfterPrompts = true
+            scheduleNextAmountPrompt()
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             showMailComposer = true
         }
@@ -419,11 +430,25 @@ struct PODetailView: View {
     /// Shows the amount prompt for the next just-uploaded receipt, after a short delay
     /// so any dismissing camera/library/alert presentation clears first.
     private func scheduleNextAmountPrompt() {
+        // Nothing queued and no deferred email -- don't spin.
+        guard !pendingAmountReceiptIDs.isEmpty || mailAfterPrompts else { return }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            guard activePrompt == nil, !pendingAmountReceiptIDs.isEmpty else { return }
-            let next = pendingAmountReceiptIDs.removeFirst()
-            amountPromptText = ""
-            activePrompt = .receiptAmount(receiptID: next)
+            guard activePrompt == nil else {
+                // Something is still on screen; check again once it clears.
+                scheduleNextAmountPrompt()
+                return
+            }
+
+            if !pendingAmountReceiptIDs.isEmpty {
+                let next = pendingAmountReceiptIDs.removeFirst()
+                amountPromptText = ""
+                activePrompt = .receiptAmount(receiptID: next)
+            } else if mailAfterPrompts {
+                // Amount prompts are done, so the composer can safely present now.
+                mailAfterPrompts = false
+                showMailComposer = true
+            }
         }
     }
 
