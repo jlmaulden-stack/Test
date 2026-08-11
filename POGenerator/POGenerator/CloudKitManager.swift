@@ -208,6 +208,9 @@ final class CloudKitManager {
         record["declinedByName"] = po.declinedByName
         record["declinedAt"] = po.declinedAt
         record["declineReason"] = po.declineReason
+        record["isArchived"] = Int64(po.isArchived ? 1 : 0)
+        record["archivedByName"] = po.archivedByName
+        record["archivedAt"] = po.archivedAt
         record["status"] = po.status.rawValue
         record["statusUpdatedByName"] = po.statusUpdatedByName
         record["statusUpdatedAt"] = po.statusUpdatedAt
@@ -279,6 +282,9 @@ final class CloudKitManager {
             declinedByName: record["declinedByName"] as? String,
             declinedAt: record["declinedAt"] as? Date,
             declineReason: record["declineReason"] as? String,
+            isArchived: (record["isArchived"] as? Int64 ?? 0) != 0,
+            archivedByName: record["archivedByName"] as? String,
+            archivedAt: record["archivedAt"] as? Date,
             status: (record["status"] as? String).flatMap(POStatus.init(rawValue:)) ?? .new,
             statusUpdatedByName: record["statusUpdatedByName"] as? String,
             statusUpdatedAt: record["statusUpdatedAt"] as? Date,

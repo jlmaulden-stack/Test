@@ -13,6 +13,7 @@ struct HistoryView: View {
     @State private var searchText = ""
     @State private var sort: HistorySort = .dateNewest
     @State private var statusFilter: POStatus?
+    @State private var showArchived = false
     @State private var exportPayload: ExportPayload?
     @State private var path: [PORoute] = []
 
@@ -20,18 +21,33 @@ struct HistoryView: View {
         store.history.contains { !$0.receipts.isEmpty }
     }
 
-    /// History filtered by the status filter and the search term (customer name or
-    /// job number), then sorted.
+    private var isManager: Bool {
+        authStore.currentUser?.isManager == true
+    }
+
+    /// History filtered by archive state, the status filter, and the search term
+    /// (customer name or job number), then sorted.
     private var displayedHistory: [PurchaseOrder] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let filtered = store.history.filter { po in
+            let matchesArchive = po.isArchived == showArchived
             let matchesStatus = statusFilter == nil || po.status == statusFilter
             let matchesQuery = query.isEmpty
                 || po.customerName.lowercased().contains(query)
                 || po.jobNumber.lowercased().contains(query)
-            return matchesStatus && matchesQuery
+            return matchesArchive && matchesStatus && matchesQuery
         }
         return sort.sorted(filtered)
+    }
+
+    /// Anything still in play -- pending, declined, new, acknowledged.
+    private var activeHistory: [PurchaseOrder] {
+        displayedHistory.filter { $0.status != .fulfilled || !$0.isApproved }
+    }
+
+    /// Completed work, listed separately below the active list.
+    private var fulfilledHistory: [PurchaseOrder] {
+        displayedHistory.filter { $0.status == .fulfilled && $0.isApproved }
     }
 
     var body: some View {
@@ -42,41 +58,22 @@ struct HistoryView: View {
                 } else if displayedHistory.isEmpty {
                     noMatchesState
                 } else {
-                    List(displayedHistory) { po in
-                        NavigationLink(value: PORoute(po: po)) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    if po.isApproved {
-                                        Text(po.poNumber)
-                                            .font(.system(.body, design: .monospaced))
-                                            .bold()
-                                            .foregroundColor(Theme.accent)
-                                        Spacer()
-                                        statusMenu(for: po)
-                                    } else if po.isDeclined {
-                                        Label("DECLINED", systemImage: "xmark.seal")
-                                            .font(.system(.caption, design: .monospaced))
-                                            .bold()
-                                            .foregroundColor(.red)
-                                        Spacer()
-                                    } else {
-                                        Label("PENDING APPROVAL", systemImage: "clock.badge.questionmark")
-                                            .font(.system(.caption, design: .monospaced))
-                                            .bold()
-                                            .foregroundColor(.orange)
-                                        Spacer()
-                                    }
+                    List {
+                        if !activeHistory.isEmpty {
+                            Section(showArchived ? "Archived — Open" : "Open") {
+                                ForEach(activeHistory) { po in
+                                    row(for: po)
                                 }
-                                Text("\(po.customerName) · Job \(po.jobNumber)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Text("By \(po.createdByName) · \(po.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
                             }
-                            .padding(.vertical, 2)
                         }
-                        .listRowBackground(Theme.panel)
+
+                        if !fulfilledHistory.isEmpty {
+                            Section("Fulfilled") {
+                                ForEach(fulfilledHistory) { po in
+                                    row(for: po)
+                                }
+                            }
+                        }
                     }
                     .scrollContentBackground(.hidden)
                     .background(Theme.background)
@@ -128,6 +125,55 @@ struct HistoryView: View {
             }
             .task {
                 await store.loadHistory()
+            }
+        }
+    }
+
+    private func row(for po: PurchaseOrder) -> some View {
+        NavigationLink(value: PORoute(po: po)) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    if po.isApproved {
+                        Text(po.poNumber)
+                            .font(.system(.body, design: .monospaced))
+                            .bold()
+                            .foregroundColor(Theme.accent)
+                        Spacer()
+                        statusMenu(for: po)
+                    } else if po.isDeclined {
+                        Label("DECLINED", systemImage: "xmark.seal")
+                            .font(.system(.caption, design: .monospaced))
+                            .bold()
+                            .foregroundColor(.red)
+                        Spacer()
+                    } else {
+                        Label("PENDING APPROVAL", systemImage: "clock.badge.questionmark")
+                            .font(.system(.caption, design: .monospaced))
+                            .bold()
+                            .foregroundColor(.orange)
+                        Spacer()
+                    }
+                }
+                Text("\(po.customerName) · Job \(po.jobNumber)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Text("By \(po.createdByName) · \(po.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 2)
+        }
+        .listRowBackground(Theme.panel)
+        .swipeActions(edge: .trailing) {
+            if isManager {
+                Button(role: po.isArchived ? .none : .destructive) {
+                    store.setArchived(!po.isArchived, for: po, by: authStore.currentUser)
+                } label: {
+                    Label(
+                        po.isArchived ? "Restore" : "Archive",
+                        systemImage: po.isArchived ? "tray.and.arrow.up" : "archivebox"
+                    )
+                }
             }
         }
     }
@@ -190,8 +236,14 @@ struct HistoryView: View {
                         .tag(POStatus?.some(status))
                 }
             }
+
+            Divider()
+
+            Toggle(isOn: $showArchived) {
+                Label("Show Archived", systemImage: "archivebox")
+            }
         } label: {
-            Label("Filter", systemImage: statusFilter == nil
+            Label("Filter", systemImage: (statusFilter == nil && !showArchived)
                 ? "line.3.horizontal.decrease.circle"
                 : "line.3.horizontal.decrease.circle.fill")
         }

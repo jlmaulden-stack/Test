@@ -124,6 +124,33 @@ final class POStore: ObservableObject {
         pushToCloud(history[index])
     }
 
+    /// Manager-only: archives (or restores) a PO. Archiving keeps the record and its
+    /// PO number intact -- deleting would leave gaps in the job's sequence -- but hides
+    /// it from the main History list.
+    func setArchived(_ archived: Bool, for po: PurchaseOrder, by account: Account?) {
+        guard account?.isManager == true,
+              let index = history.firstIndex(where: { $0.id == po.id })
+        else { return }
+        history[index].isArchived = archived
+        history[index].archivedByName = archived ? account?.username : nil
+        history[index].archivedAt = archived ? Date() : nil
+        syncLastGenerated(with: index)
+        saveHistory()
+        pushToCloud(history[index])
+    }
+
+    /// Removes one submission photo from a PO and deletes its local file.
+    func removePhoto(fileName: String, from po: PurchaseOrder) {
+        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
+        var names = history[index].photoFileNames
+        names.removeAll { $0 == fileName }
+        history[index].photoFileNames = names
+        PhotoStore.delete(fileName: fileName)
+        syncLastGenerated(with: index)
+        saveHistory()
+        pushToCloud(history[index])
+    }
+
     func setStatus(_ status: POStatus, for po: PurchaseOrder, by account: Account?) {
         guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
         history[index].status = status

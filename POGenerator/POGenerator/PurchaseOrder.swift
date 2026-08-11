@@ -9,7 +9,7 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     var sequence: Int
     let createdAt: Date
     let details: String
-    let photoFileNames: [String]
+    var photoFileNames: [String]
     let createdByName: String
     var isApproved: Bool
     var approvedByName: String?
@@ -18,6 +18,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     var declinedByName: String?
     var declinedAt: Date?
     var declineReason: String?
+    var isArchived: Bool
+    var archivedByName: String?
+    var archivedAt: Date?
     var status: POStatus
     var statusUpdatedByName: String?
     var statusUpdatedAt: Date?
@@ -52,6 +55,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         declinedByName: String? = nil,
         declinedAt: Date? = nil,
         declineReason: String? = nil,
+        isArchived: Bool = false,
+        archivedByName: String? = nil,
+        archivedAt: Date? = nil,
         status: POStatus = .new,
         statusUpdatedByName: String? = nil,
         statusUpdatedAt: Date? = nil,
@@ -74,6 +80,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         self.declinedByName = declinedByName
         self.declinedAt = declinedAt
         self.declineReason = declineReason
+        self.isArchived = isArchived
+        self.archivedByName = archivedByName
+        self.archivedAt = archivedAt
         self.status = status
         self.statusUpdatedByName = statusUpdatedByName
         self.statusUpdatedAt = statusUpdatedAt
@@ -85,6 +94,7 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         case id, poNumber, jobNumber, customerName, sequence, createdAt, details, photoFileNames, createdByName
         case isApproved, approvedByName, approvedAt, wasSelfApproved
         case declinedByName, declinedAt, declineReason
+        case isArchived, archivedByName, archivedAt
         case status, statusUpdatedByName, statusUpdatedAt, fulfillmentNotes, receipts
     }
 
@@ -118,6 +128,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
         declinedByName = try container.decodeIfPresent(String.self, forKey: .declinedByName)
         declinedAt = try container.decodeIfPresent(Date.self, forKey: .declinedAt)
         declineReason = try container.decodeIfPresent(String.self, forKey: .declineReason)
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        archivedByName = try container.decodeIfPresent(String.self, forKey: .archivedByName)
+        archivedAt = try container.decodeIfPresent(Date.self, forKey: .archivedAt)
 
         let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
 

@@ -23,6 +23,18 @@ struct PODetailView: View {
     // Receipts awaiting a required dollar amount, prompted one at a time as uploaded.
     @State private var pendingAmountReceiptIDs: [String] = []
     @State private var amountPromptText = ""
+    @State private var viewingPhoto: PhotoSelection?
+    @State private var showMailComposer = false
+    @State private var showMailUnavailable = false
+    @State private var showArchiveConfirmation = false
+
+    /// Identifies which photo the full-screen viewer is showing.
+    private struct PhotoSelection: Identifiable {
+        let id: String
+        let fileName: String
+        let title: String
+        let deletable: Bool
+    }
     // Single alert slot: SwiftUI only honors one .alert per view, so both prompts
     // share this one. Two stacked .alert modifiers silently dropped one of them.
     @State private var activePrompt: ActivePrompt?
@@ -71,6 +83,8 @@ struct PODetailView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         activePrompt = .fulfillWithoutReceipt
                     }
+                } else if newStatus == .fulfilled {
+                    markFulfilled()
                 } else {
                     store.setStatus(newStatus, for: current, by: authStore.currentUser)
                 }
@@ -151,16 +165,29 @@ struct PODetailView: View {
                         HStack(spacing: 10) {
                             ForEach(current.photoFileNames, id: \.self) { fileName in
                                 if let image = PhotoStore.loadImage(fileName: fileName) {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 120, height: 120)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    Button {
+                                        viewingPhoto = PhotoSelection(
+                                            id: fileName,
+                                            fileName: fileName,
+                                            title: "Request Photo",
+                                            deletable: true
+                                        )
+                                    } label: {
+                                        Image(uiImage: image)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 120, height: 120)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
                         .padding(.vertical, 4)
                     }
+                    Text("Tap a photo to view, share, or delete it.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 }
                 .listRowBackground(Theme.panel)
             }
@@ -190,6 +217,43 @@ struct PODetailView: View {
                 .listRowBackground(Theme.panel)
 
                 receiptsSection
+
+                if current.status == .fulfilled {
+                    Section("Summary Email") {
+                        Button {
+                            if POMail.canSend {
+                                showMailComposer = true
+                            } else {
+                                showMailUnavailable = true
+                            }
+                        } label: {
+                            Label("Email PO Summary", systemImage: "envelope")
+                        }
+                        Text("Sends the full PO — details, notes, receipt amounts, and all photos — to \(POMail.recipient).")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    .listRowBackground(Theme.panel)
+                }
+            }
+
+            if authStore.currentUser?.isManager == true {
+                Section("Manager") {
+                    Button(role: current.isArchived ? .none : .destructive) {
+                        showArchiveConfirmation = true
+                    } label: {
+                        Label(
+                            current.isArchived ? "Restore PO" : "Archive PO",
+                            systemImage: current.isArchived ? "tray.and.arrow.up" : "archivebox"
+                        )
+                    }
+                    if current.isArchived, let by = current.archivedByName, let at = current.archivedAt {
+                        Text("Archived by \(by) on \(at.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .listRowBackground(Theme.panel)
             }
         }
         .industrialForm()
@@ -235,6 +299,37 @@ struct PODetailView: View {
         .sheet(item: $exportPayload) { payload in
             ShareSheet(items: payload.urls)
         }
+        .fullScreenCover(item: $viewingPhoto) { selection in
+            PhotoViewerView(
+                fileName: selection.fileName,
+                title: selection.title,
+                onDelete: selection.deletable
+                    ? { store.removePhoto(fileName: selection.fileName, from: current) }
+                    : nil
+            )
+        }
+        .sheet(isPresented: $showMailComposer) {
+            POMailComposeView(po: current)
+        }
+        .alert("Mail Not Set Up", isPresented: $showMailUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This device has no email account configured in the Mail app, so the summary can't be composed. Add an account in Settings → Mail, then try again.")
+        }
+        .confirmationDialog(
+            current.isArchived ? "Restore this PO?" : "Archive this PO?",
+            isPresented: $showArchiveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(current.isArchived ? "Restore" : "Archive", role: current.isArchived ? .none : .destructive) {
+                store.setArchived(!current.isArchived, for: current, by: authStore.currentUser)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(current.isArchived
+                 ? "It will move back into the main History list."
+                 : "It stays recorded and keeps its PO number, but is hidden from the main History list. You can restore it later.")
+        }
         .alert(promptTitle, isPresented: promptPresented, presenting: activePrompt) { prompt in
             switch prompt {
             case .fulfillWithoutReceipt:
@@ -246,7 +341,7 @@ struct PODetailView: View {
                     }
                 }
                 Button("Mark Fulfilled Anyway") {
-                    store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+                    markFulfilled()
                 }
                 Button("Cancel", role: .cancel) {}
 
@@ -293,7 +388,7 @@ struct PODetailView: View {
         hasAutoPrompted = true
 
         guard current.receipts.isEmpty else {
-            store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+            markFulfilled()
             return
         }
         // Let the push transition finish before presenting.
@@ -307,7 +402,18 @@ struct PODetailView: View {
     private func applyPendingFulfillmentIfNeeded() {
         guard fulfillAfterReceipt else { return }
         fulfillAfterReceipt = false
+        markFulfilled()
+    }
+
+    /// Sets Fulfilled and offers the summary email. iOS can't send mail on its own, so
+    /// this opens the pre-filled composer -- the user taps Send.
+    private func markFulfilled() {
         store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+        guard POMail.canSend else { return }
+        // Let any dismissing alert/dialog clear before presenting the composer.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            showMailComposer = true
+        }
     }
 
     /// Shows the amount prompt for the next just-uploaded receipt, after a short delay
@@ -335,7 +441,14 @@ struct PODetailView: View {
     private var receiptsSection: some View {
         Section {
             ForEach(current.receipts) { receipt in
-                ReceiptRow(po: current, receipt: receipt)
+                ReceiptRow(po: current, receipt: receipt) {
+                    viewingPhoto = PhotoSelection(
+                        id: receipt.id,
+                        fileName: receipt.photoFileName,
+                        title: "Receipt",
+                        deletable: false
+                    )
+                }
             }
 
             Button {
@@ -374,6 +487,7 @@ private struct ReceiptRow: View {
     @EnvironmentObject private var store: POStore
     let po: PurchaseOrder
     let receipt: Receipt
+    var onTapPhoto: () -> Void = {}
     @State private var amountText: String = ""
     @State private var showDeleteConfirmation = false
     @FocusState private var amountFocused: Bool
@@ -381,11 +495,14 @@ private struct ReceiptRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let image = PhotoStore.loadImage(fileName: receipt.photoFileName) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                Button(action: onTapPhoto) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 200)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
             }
 
             HStack {
