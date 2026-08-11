@@ -265,9 +265,10 @@ struct HistoryView: View {
         Menu {
             ForEach(POStatus.allCases) { status in
                 Button {
-                    if status == .fulfilled && po.receipts.isEmpty {
-                        // Receipts are requested before fulfilling, and that prompt
-                        // lives on the detail page -- open it there instead.
+                    if status == .fulfilled {
+                        // Fulfilling opens the receipt prompt and the summary email,
+                        // both of which live on the detail page -- go there instead of
+                        // flipping the status in place.
                         path.append(PORoute(po: po, promptFulfill: true))
                     } else {
                         store.setStatus(status, for: po, by: authStore.currentUser)
