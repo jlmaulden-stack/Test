@@ -15,6 +15,28 @@ enum POGeneratorError: LocalizedError {
     }
 }
 
+extension CKError {
+    /// Turns the opaque CloudKit messages into something a user can act on.
+    var friendlyDescription: String {
+        switch code {
+        case .operationCancelled:
+            return "The save was interrupted. Pull to refresh History and it will retry."
+        case .networkUnavailable, .networkFailure:
+            return "No network connection. Changes are saved on this device and will sync once you're back online."
+        case .notAuthenticated:
+            return "Not signed in to iCloud. Sign in under Settings > [Your Name]."
+        case .quotaExceeded:
+            return "The iCloud storage quota for this app has been exceeded."
+        case .permissionFailure:
+            return "iCloud rejected the change (permission denied). The container's security roles may need Write access."
+        case .invalidArguments, .serverRejectedRequest:
+            return "iCloud rejected the record — usually a field missing from the Production schema. \(localizedDescription)"
+        default:
+            return localizedDescription
+        }
+    }
+}
+
 /// Syncs PO requests through the app's public CloudKit database so every employee's
 /// phone sees the same requests, approvals, statuses, and receipts. Photos travel as
 /// CKAssets and are cached in the local Documents directory by file name.
@@ -297,6 +319,10 @@ final class CloudKitManager {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
             operation.savePolicy = savePolicy
+            // Without this the operation runs at default QoS, which iOS is free to
+            // defer and then cancel -- surfacing as "Operation ... was cancelled"
+            // rather than a real failure. These saves are user-initiated.
+            operation.qualityOfService = .userInitiated
             operation.modifyRecordsResultBlock = { result in
                 switch result {
                 case .success:

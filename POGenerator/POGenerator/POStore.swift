@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import UIKit
 
@@ -89,7 +90,7 @@ final class POStore: ObservableObject {
             sequence = try await cloud.reserveNextSequence(forJobNumber: job)
         } catch {
             sequence = (jobCounts[key] ?? 0) + 1
-            errorMessage = "Approved without iCloud — this PO number may not be unique across devices. \(error.localizedDescription)"
+            errorMessage = "Approved without iCloud — this PO number may not be unique across devices. \(Self.describe(error))"
         }
         jobCounts[key] = max(jobCounts[key] ?? 0, sequence)
 
@@ -211,6 +212,11 @@ final class POStore: ObservableObject {
         pushToCloud(history[index])
     }
 
+    /// Presents CloudKit failures in terms a user can act on.
+    static func describe(_ error: Error) -> String {
+        (error as? CKError)?.friendlyDescription ?? error.localizedDescription
+    }
+
     private func syncLastGenerated(with index: Int) {
         if lastGenerated?.id == history[index].id {
             lastGenerated = history[index]
@@ -228,7 +234,7 @@ final class POStore: ObservableObject {
             do {
                 try await cloud.save(po)
             } catch {
-                errorMessage = "iCloud sync failed: \(error.localizedDescription)"
+                errorMessage = "iCloud sync failed: \(Self.describe(error))"
             }
         }
     }
@@ -249,11 +255,18 @@ final class POStore: ObservableObject {
 
             // Retry anything that never reached the cloud (created while iCloud was
             // unreachable or the schema was rejecting saves), so a refresh heals it.
+            // Sequential on purpose: firing these concurrently makes CloudKit cancel
+            // the siblings of any one that fails.
             for po in localOnly {
-                pushToCloud(po)
+                do {
+                    try await cloud.save(po)
+                } catch {
+                    errorMessage = "iCloud sync failed: \(Self.describe(error))"
+                    break
+                }
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.describe(error)
             history = loadHistoryFromDisk()
         }
         updateBadge()

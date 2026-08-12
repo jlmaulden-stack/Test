@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 
 /// Manager-provisioned accounts, synced through the shared CloudKit database so every
@@ -62,7 +63,7 @@ final class AuthStore: ObservableObject {
                 pushToCloud(account)
             }
         } catch {
-            syncErrorMessage = error.localizedDescription
+            syncErrorMessage = Self.describe(error)
         }
     }
 
@@ -146,9 +147,14 @@ final class AuthStore: ObservableObject {
             do {
                 try await cloud.deleteAccount(id: account.id)
             } catch {
-                syncErrorMessage = "iCloud sync failed: \(error.localizedDescription)"
+                syncErrorMessage = "iCloud sync failed: \(Self.describe(error))"
             }
         }
+    }
+
+    /// Presents CloudKit failures in terms a user can act on.
+    static func describe(_ error: Error) -> String {
+        (error as? CKError)?.friendlyDescription ?? error.localizedDescription
     }
 
     private func pushToCloud(_ account: Account) {
@@ -156,7 +162,7 @@ final class AuthStore: ObservableObject {
             do {
                 try await cloud.save(account)
             } catch {
-                syncErrorMessage = "iCloud sync failed: \(error.localizedDescription)"
+                syncErrorMessage = "iCloud sync failed: \(Self.describe(error))"
             }
         }
     }
