@@ -83,7 +83,7 @@ struct PODetailView: View {
             get: { current.status },
             set: { newStatus in
                 // Delivery statuses expect a receipt; nudge for one, but allow a bypass.
-                if newStatus.reportsDelivery && current.receipts.isEmpty {
+                if needsReceipt(for: newStatus) {
                     // Defer so the Picker's pushed selection screen finishes popping;
                     // presenting mid-transition swallows the alert.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
@@ -407,7 +407,7 @@ struct PODetailView: View {
         guard let intent = deliveryIntentOnAppear, !hasAutoPrompted, current.isApproved else { return }
         hasAutoPrompted = true
 
-        guard current.receipts.isEmpty else {
+        guard needsReceipt(for: intent) else {
             applyDeliveryStatus(intent)
             return
         }
@@ -415,6 +415,15 @@ struct PODetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             activePrompt = .needsReceipt(intended: intent)
         }
+    }
+
+    /// Whether moving to `newStatus` should ask for a receipt first. Nothing documented
+    /// yet clearly needs one; so does completing a partially-fulfilled PO, since that
+    /// means a further delivery arrived and the existing receipts cover earlier ones.
+    private func needsReceipt(for newStatus: POStatus) -> Bool {
+        guard newStatus.reportsDelivery else { return false }
+        if current.receipts.isEmpty { return true }
+        return current.status == .partiallyFulfilled && newStatus == .fulfilled
     }
 
     /// Records a delivery status (fulfilled or partially fulfilled) and offers the
