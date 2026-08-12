@@ -9,7 +9,7 @@ enum POMail {
     static var canSend: Bool { MFMailComposeViewController.canSendMail() }
 
     static func subject(for po: PurchaseOrder) -> String {
-        "PO \(po.poNumber) — \(po.customerName) — Fulfilled"
+        "PO \(po.poNumber) — \(po.customerName) — \(po.status.label)"
     }
 
     /// Plain-text summary of everything recorded against the PO.
@@ -113,7 +113,9 @@ struct POMailComposeView: UIViewControllerRepresentable {
         controller.setSubject(POMail.subject(for: po))
         controller.setMessageBody(POMail.body(for: po), isHTML: false)
         for attachment in POMail.attachments(for: po) {
-            controller.addAttachmentData(attachment.data, mimeType: "image/jpeg", fileName: attachment.fileName)
+            // octet-stream rather than image/jpeg so mail clients show these as file
+            // attachments to download instead of previewing them inline in the message.
+            controller.addAttachmentData(attachment.data, mimeType: "application/octet-stream", fileName: attachment.fileName)
         }
         return controller
     }

@@ -6,9 +6,9 @@ struct PODetailView: View {
     @EnvironmentObject private var store: POStore
     @EnvironmentObject private var authStore: AuthStore
     let po: PurchaseOrder
-    /// Set when arriving from History's status menu after picking Fulfilled on a PO
-    /// with no receipts, so the receipt prompt appears without a second tap.
-    var promptFulfillOnAppear: Bool = false
+    /// Set when arriving from History's status menu after picking a delivery status,
+    /// so the receipt prompt and email flow run without a second tap.
+    var deliveryIntentOnAppear: POStatus?
 
     @State private var hasAutoPrompted = false
     @State private var notesText: String = ""
@@ -17,11 +17,11 @@ struct PODetailView: View {
     @State private var showPhotoLibraryPicker = false
     @State private var receiptPickerItems: [PhotosPickerItem] = []
     @State private var exportPayload: ExportPayload?
-    // Set when the user chose "Add Receipt Photo" from the fulfilled prompt, so the
-    // status flips to Fulfilled once a receipt is actually added.
-    @State private var fulfillAfterReceipt = false
     // Receipts awaiting a required dollar amount, prompted one at a time as uploaded.
     @State private var pendingAmountReceiptIDs: [String] = []
+    // Set once at least one receipt amount was saved, so the "does this complete the
+    // order?" question is asked once after the whole batch rather than per receipt.
+    @State private var askCompletesOrder = false
     @State private var amountPromptText = ""
     @State private var viewingPhoto: PhotoSelection?
     @State private var showMailComposer = false
@@ -43,13 +43,18 @@ struct PODetailView: View {
     @State private var activePrompt: ActivePrompt?
 
     private enum ActivePrompt: Identifiable {
-        case fulfillWithoutReceipt
+        /// A delivery status was picked but no receipt is attached yet.
+        case needsReceipt(intended: POStatus)
         case receiptAmount(receiptID: String)
+        /// Asked after receipts are logged: is the PO now complete, or are more
+        /// deliveries still coming?
+        case completesOrder
 
         var id: String {
             switch self {
-            case .fulfillWithoutReceipt: return "fulfill"
+            case .needsReceipt(let intended): return "needs-receipt-\(intended.rawValue)"
             case .receiptAmount(let receiptID): return "amount-\(receiptID)"
+            case .completesOrder: return "completes-order"
             }
         }
     }
@@ -64,7 +69,6 @@ struct PODetailView: View {
         Binding(get: { nil }, set: { image in
             if let image, let receiptID = store.addReceipt(image, for: current) {
                 pendingAmountReceiptIDs.append(receiptID)
-                applyPendingFulfillmentIfNeeded()
                 scheduleNextAmountPrompt()
             }
         })
@@ -78,16 +82,15 @@ struct PODetailView: View {
         Binding(
             get: { current.status },
             set: { newStatus in
-                // Nudge the user to attach a receipt before marking fulfilled, but let
-                // them bypass it.
-                if newStatus == .fulfilled && current.receipts.isEmpty {
+                // Delivery statuses expect a receipt; nudge for one, but allow a bypass.
+                if newStatus.reportsDelivery && current.receipts.isEmpty {
                     // Defer so the Picker's pushed selection screen finishes popping;
                     // presenting mid-transition swallows the alert.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                        activePrompt = .fulfillWithoutReceipt
+                        activePrompt = .needsReceipt(intended: newStatus)
                     }
-                } else if newStatus == .fulfilled {
-                    markFulfilled()
+                } else if newStatus.reportsDelivery {
+                    applyDeliveryStatus(newStatus)
                 } else {
                     store.setStatus(newStatus, for: current, by: authStore.currentUser)
                 }
@@ -221,7 +224,7 @@ struct PODetailView: View {
 
                 receiptsSection
 
-                if current.status == .fulfilled {
+                if current.status.reportsDelivery {
                     Section("Summary Email") {
                         Button {
                             if POMail.canSend {
@@ -290,7 +293,6 @@ struct PODetailView: View {
                 }
                 receiptPickerItems = []
                 if addedAny {
-                    applyPendingFulfillmentIfNeeded()
                     scheduleNextAmountPrompt()
                 }
             }
@@ -335,16 +337,15 @@ struct PODetailView: View {
         }
         .alert(promptTitle, isPresented: promptPresented, presenting: activePrompt) { prompt in
             switch prompt {
-            case .fulfillWithoutReceipt:
+            case .needsReceipt(let intended):
                 Button("Add Receipt Photo") {
-                    fulfillAfterReceipt = true
                     // Defer so the alert finishes dismissing before the dialog presents.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                         showReceiptOptions = true
                     }
                 }
-                Button("Mark Fulfilled Anyway") {
-                    markFulfilled()
+                Button("Mark \(intended.label) Anyway") {
+                    applyDeliveryStatus(intended)
                 }
                 Button("Cancel", role: .cancel) {}
 
@@ -354,6 +355,8 @@ struct PODetailView: View {
                 Button("Save") {
                     if let amount = parseAmount(amountPromptText), amount > 0 {
                         store.setReceiptAmount(amount, receiptID: receiptID, for: current)
+                        // A logged delivery -- ask whether it finishes the order.
+                        askCompletesOrder = true
                     } else {
                         // A dollar amount is required, so discard a receipt left without one.
                         store.removeReceipt(id: receiptID, for: current)
@@ -364,60 +367,66 @@ struct PODetailView: View {
                     store.removeReceipt(id: receiptID, for: current)
                     finishAmountPrompt()
                 }
+
+            case .completesOrder:
+                Button("Yes — Order Complete") {
+                    applyDeliveryStatus(.fulfilled)
+                }
+                Button("No — More Coming") {
+                    applyDeliveryStatus(.partiallyFulfilled)
+                }
             }
         } message: { prompt in
             switch prompt {
-            case .fulfillWithoutReceipt:
-                Text("Marking this PO fulfilled usually includes a receipt photo. Add one now, or mark it fulfilled anyway.")
+            case .needsReceipt(let intended):
+                Text("Marking this PO \(intended.label.lowercased()) usually includes a receipt photo. Add one now, or set the status anyway.")
             case .receiptAmount:
                 Text("A dollar amount is required for each receipt. Cancelling discards this receipt photo.")
+            case .completesOrder:
+                Text("Does this delivery complete the order? Either way the summary email opens next.")
             }
         }
     }
 
     private var promptTitle: String {
-        if case .receiptAmount = activePrompt { return "Enter Receipt Amount" }
-        return "Add a Receipt?"
+        switch activePrompt {
+        case .receiptAmount: return "Enter Receipt Amount"
+        case .completesOrder: return "Order Complete?"
+        default: return "Add a Receipt?"
+        }
     }
 
     private var promptPresented: Binding<Bool> {
         Binding(get: { activePrompt != nil }, set: { if !$0 { activePrompt = nil } })
     }
 
-    /// Arriving from History's status menu: honor the Fulfilled intent by showing the
-    /// receipt prompt (or, if a receipt landed meanwhile, just fulfilling). Runs once.
+    /// Arriving from History's status menu: honor the delivery status that was picked
+    /// by prompting for a receipt (or applying it directly if one already exists).
+    /// Runs once.
     private func autoPromptFulfillIfNeeded() {
-        guard promptFulfillOnAppear, !hasAutoPrompted, current.isApproved else { return }
+        guard let intent = deliveryIntentOnAppear, !hasAutoPrompted, current.isApproved else { return }
         hasAutoPrompted = true
 
         guard current.receipts.isEmpty else {
-            markFulfilled()
+            applyDeliveryStatus(intent)
             return
         }
         // Let the push transition finish before presenting.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            activePrompt = .fulfillWithoutReceipt
+            activePrompt = .needsReceipt(intended: intent)
         }
     }
 
-    /// After a receipt is added as part of the "mark fulfilled" flow, complete the
-    /// status change.
-    private func applyPendingFulfillmentIfNeeded() {
-        guard fulfillAfterReceipt else { return }
-        fulfillAfterReceipt = false
-        markFulfilled()
-    }
-
-    /// Sets Fulfilled and offers the summary email. iOS can't send mail on its own, so
-    /// this opens the pre-filled composer -- the user taps Send.
-    private func markFulfilled() {
-        store.setStatus(.fulfilled, for: current, by: authStore.currentUser)
+    /// Records a delivery status (fulfilled or partially fulfilled) and offers the
+    /// summary email. iOS can't send mail on its own, so this opens the pre-filled
+    /// composer -- the user taps Send.
+    private func applyDeliveryStatus(_ status: POStatus) {
+        store.setStatus(status, for: current, by: authStore.currentUser)
         guard POMail.canSend else { return }
 
-        // A sheet can't present over an alert. If receipts are still waiting on their
-        // amounts, hand off to scheduleNextAmountPrompt, which opens the composer once
-        // the queue drains.
-        if activePrompt != nil || !pendingAmountReceiptIDs.isEmpty {
+        // A sheet can't present over an alert. If any prompt is showing or queued, hand
+        // off to scheduleNextAmountPrompt, which opens the composer once they drain.
+        if activePrompt != nil || !pendingAmountReceiptIDs.isEmpty || askCompletesOrder {
             mailAfterPrompts = true
             scheduleNextAmountPrompt()
             return
@@ -430,8 +439,8 @@ struct PODetailView: View {
     /// Shows the amount prompt for the next just-uploaded receipt, after a short delay
     /// so any dismissing camera/library/alert presentation clears first.
     private func scheduleNextAmountPrompt() {
-        // Nothing queued and no deferred email -- don't spin.
-        guard !pendingAmountReceiptIDs.isEmpty || mailAfterPrompts else { return }
+        // Nothing queued -- don't spin.
+        guard !pendingAmountReceiptIDs.isEmpty || askCompletesOrder || mailAfterPrompts else { return }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             guard activePrompt == nil else {
@@ -444,6 +453,11 @@ struct PODetailView: View {
                 let next = pendingAmountReceiptIDs.removeFirst()
                 amountPromptText = ""
                 activePrompt = .receiptAmount(receiptID: next)
+            } else if askCompletesOrder {
+                // All amounts logged -- now ask whether the order is finished. The
+                // answer sets the status and queues the email.
+                askCompletesOrder = false
+                activePrompt = .completesOrder
             } else if mailAfterPrompts {
                 // Amount prompts are done, so the composer can safely present now.
                 mailAfterPrompts = false
@@ -477,7 +491,6 @@ struct PODetailView: View {
             }
 
             Button {
-                fulfillAfterReceipt = false
                 showReceiptOptions = true
             } label: {
                 Label("Add Receipt Photo", systemImage: "doc.viewfinder")

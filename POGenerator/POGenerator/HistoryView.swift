@@ -4,7 +4,9 @@ import SwiftUI
 /// for a receipt (when Fulfilled was picked from the History menu on a PO with none).
 struct PORoute: Hashable {
     let po: PurchaseOrder
-    var promptFulfill: Bool = false
+    /// Set when a delivery status was picked from the History menu, so the detail page
+    /// can run the receipt prompt and email flow for that specific status.
+    var deliveryIntent: POStatus?
 }
 
 struct HistoryView: View {
@@ -78,7 +80,7 @@ struct HistoryView: View {
                     .scrollContentBackground(.hidden)
                     .background(Theme.background)
                     .navigationDestination(for: PORoute.self) { route in
-                        PODetailView(po: route.po, promptFulfillOnAppear: route.promptFulfill)
+                        PODetailView(po: route.po, deliveryIntentOnAppear: route.deliveryIntent)
                     }
                     .refreshable {
                         await store.loadHistory()
@@ -153,6 +155,12 @@ struct HistoryView: View {
                             .foregroundColor(.orange)
                         Spacer()
                     }
+                }
+                if po.isApproved, let updatedBy = po.statusUpdatedByName {
+                    Text("\(po.status.label) by \(updatedBy)")
+                        .font(.caption2)
+                        .foregroundColor(po.status.color)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 Text("\(po.customerName) · Job \(po.jobNumber)")
                     .font(.subheadline)
@@ -265,11 +273,11 @@ struct HistoryView: View {
         Menu {
             ForEach(POStatus.allCases) { status in
                 Button {
-                    if status == .fulfilled {
-                        // Fulfilling opens the receipt prompt and the summary email,
-                        // both of which live on the detail page -- go there instead of
-                        // flipping the status in place.
-                        path.append(PORoute(po: po, promptFulfill: true))
+                    if status.reportsDelivery {
+                        // Delivery statuses open the receipt prompt and the summary
+                        // email, both of which live on the detail page -- go there
+                        // instead of flipping the status in place.
+                        path.append(PORoute(po: po, deliveryIntent: status))
                     } else {
                         store.setStatus(status, for: po, by: authStore.currentUser)
                     }
