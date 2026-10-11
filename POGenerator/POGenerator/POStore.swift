@@ -30,6 +30,10 @@ final class POStore: ObservableObject {
     /// other out and surface "the save was interrupted".
     private var cloudWrites: Task<Void, Never>?
 
+    /// Pending debounced pushes, keyed by PO and field, plus the POs they belong to.
+    private var debouncedPushes: [String: Task<Void, Never>] = [:]
+    private var pendingEditPOIDs: Set<String> = []
+
     private let defaults = UserDefaults.standard
     private let historyKey = "POStore.history"
     private let countsKey = "POStore.jobCounts"
@@ -152,6 +156,32 @@ final class POStore: ObservableObject {
         pushToCloud(history[index])
     }
 
+    /// Edits the material list. Allowed at any point in the PO's life -- what's needed
+    /// on a job changes after the request goes in.
+    func setDetails(_ details: String, for po: PurchaseOrder) {
+        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
+        let trimmed = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard history[index].details != trimmed else { return }
+        history[index].details = trimmed
+        syncLastGenerated(with: index)
+        saveHistory()
+        pushToCloudDebounced(poID: po.id, field: "details")
+    }
+
+    /// Adds a submission photo to an existing PO, so photos can be attached as the job
+    /// progresses rather than only at request time.
+    @discardableResult
+    func addPhoto(_ image: UIImage, to po: PurchaseOrder) -> String? {
+        guard let index = history.firstIndex(where: { $0.id == po.id }),
+              let fileName = PhotoStore.savePhoto(image)
+        else { return nil }
+        history[index].photoFileNames.append(fileName)
+        syncLastGenerated(with: index)
+        saveHistory()
+        pushToCloud(history[index])
+        return fileName
+    }
+
     /// Removes one submission photo from a PO and deletes its local file.
     func removePhoto(fileName: String, from po: PurchaseOrder) {
         guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
@@ -177,25 +207,62 @@ final class POStore: ObservableObject {
     }
 
     func setFulfillmentNotes(_ notes: String, for po: PurchaseOrder) {
-        guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
+        guard let index = history.firstIndex(where: { $0.id == po.id }),
+              history[index].fulfillmentNotes != notes
+        else { return }
         history[index].fulfillmentNotes = notes
-        if lastGenerated?.id == po.id {
-            lastGenerated = history[index]
-        }
+        syncLastGenerated(with: index)
         saveHistory()
-        pushToCloud(history[index])
+        pushToCloudDebounced(poID: po.id, field: "notes")
     }
 
     @discardableResult
     func addReceipt(_ image: UIImage, for po: PurchaseOrder) -> String? {
         guard let index = history.firstIndex(where: { $0.id == po.id }) else { return nil }
         let receiptID = UUID().uuidString
-        guard let fileName = PhotoStore.saveReceipt(image, id: receiptID) else { return nil }
+        guard let fileName = PhotoStore.saveReceiptPhoto(image, receiptID: receiptID) else { return nil }
         history[index].receipts.append(Receipt(id: receiptID, photoFileName: fileName, amount: nil))
         syncLastGenerated(with: index)
         saveHistory()
         pushToCloud(history[index])
         return receiptID
+    }
+
+    /// Adds another photo to an existing receipt -- a long receipt, or a multi-page
+    /// invoice from a partial delivery, takes more than one shot. The amount already
+    /// recorded on the receipt covers them all.
+    @discardableResult
+    func addReceiptPhoto(_ image: UIImage, toReceipt receiptID: String, for po: PurchaseOrder) -> String? {
+        guard let poIndex = history.firstIndex(where: { $0.id == po.id }),
+              let receiptIndex = history[poIndex].receipts.firstIndex(where: { $0.id == receiptID }),
+              let fileName = PhotoStore.saveReceiptPhoto(image, receiptID: receiptID)
+        else { return nil }
+        history[poIndex].receipts[receiptIndex].photoFileNames.append(fileName)
+        syncLastGenerated(with: poIndex)
+        saveHistory()
+        pushToCloud(history[poIndex])
+        return fileName
+    }
+
+    /// Removes one photo from a receipt. Taking away the last photo removes the receipt
+    /// along with its amount -- an amount with nothing backing it isn't a receipt.
+    func removeReceiptPhoto(fileName: String, fromReceipt receiptID: String, for po: PurchaseOrder) {
+        guard let poIndex = history.firstIndex(where: { $0.id == po.id }),
+              let receiptIndex = history[poIndex].receipts.firstIndex(where: { $0.id == receiptID })
+        else { return }
+
+        var names = history[poIndex].receipts[receiptIndex].photoFileNames
+        names.removeAll { $0 == fileName }
+        PhotoStore.delete(fileName: fileName)
+
+        if names.isEmpty {
+            history[poIndex].receipts.remove(at: receiptIndex)
+        } else {
+            history[poIndex].receipts[receiptIndex].photoFileNames = names
+        }
+        syncLastGenerated(with: poIndex)
+        saveHistory()
+        pushToCloud(history[poIndex])
     }
 
     func removeReceipt(id receiptID: String, for po: PurchaseOrder) {
@@ -209,15 +276,18 @@ final class POStore: ObservableObject {
         guard let poIndex = history.firstIndex(where: { $0.id == po.id }),
               let receiptIndex = history[poIndex].receipts.firstIndex(where: { $0.id == receiptID })
         else { return }
+        guard history[poIndex].receipts[receiptIndex].amount != amount else { return }
         history[poIndex].receipts[receiptIndex].amount = amount
         syncLastGenerated(with: poIndex)
         saveHistory()
-        pushToCloud(history[poIndex])
+        pushToCloudDebounced(poID: po.id, field: "amount-\(receiptID)")
     }
 
     func removeReceipt(_ receipt: Receipt, for po: PurchaseOrder) {
         guard let index = history.firstIndex(where: { $0.id == po.id }) else { return }
-        PhotoStore.delete(fileName: receipt.photoFileName)
+        for fileName in receipt.photoFileNames {
+            PhotoStore.delete(fileName: fileName)
+        }
         history[index].receipts.removeAll { $0.id == receipt.id }
         syncLastGenerated(with: index)
         saveHistory()
@@ -251,6 +321,42 @@ final class POStore: ObservableObject {
             } catch {
                 self.errorMessage = "iCloud sync failed: \(Self.describe(error))"
             }
+        }
+    }
+
+    /// Queues a cloud push for a field being typed into. The edit is already saved on
+    /// device; the upload waits for a pause so one sentence isn't dozens of CloudKit
+    /// saves fighting each other.
+    private func pushToCloudDebounced(poID: String, field: String) {
+        let handle = "\(poID)-\(field)"
+        pendingEditPOIDs.insert(poID)
+        debouncedPushes[handle]?.cancel()
+        debouncedPushes[handle] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.debouncedPushes[handle] = nil
+            // Push the current version, not the one captured when typing started. A
+            // push writes the whole record, so it covers every pending field at once.
+            self.pendingEditPOIDs.remove(poID)
+            if let po = self.history.first(where: { $0.id == poID }) {
+                self.pushToCloud(po)
+            }
+        }
+    }
+
+    /// Sends debounced text edits immediately. Called when leaving the detail page or
+    /// backgrounding the app, so a pause shorter than the debounce can't strand an edit
+    /// on one device.
+    func flushPendingPushes() {
+        guard !pendingEditPOIDs.isEmpty else { return }
+        for task in debouncedPushes.values {
+            task.cancel()
+        }
+        debouncedPushes.removeAll()
+        let ids = pendingEditPOIDs
+        pendingEditPOIDs.removeAll()
+        for po in history where ids.contains(po.id) {
+            pushToCloud(po)
         }
     }
 

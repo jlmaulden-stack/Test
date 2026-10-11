@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var store = POStore()
     @StateObject private var authStore = AuthStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -25,6 +26,12 @@ struct ContentView: View {
         .environmentObject(authStore)
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
+        .onChange(of: scenePhase) { phase in
+            // Don't let the app go to sleep holding an unsynced edit.
+            if phase != .active {
+                store.flushPendingPushes()
+            }
+        }
     }
 }
 

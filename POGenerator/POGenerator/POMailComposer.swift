@@ -55,7 +55,9 @@ enum POMail {
         } else {
             for (index, receipt) in po.receipts.enumerated() {
                 let amount = receipt.amount.map { currency($0) } ?? "no amount entered"
-                lines.append("  \(index + 1). \(amount)")
+                let pages = receipt.photoFileNames.count
+                let pageNote = pages > 1 ? " (\(pages) photos)" : ""
+                lines.append("  \(index + 1). \(amount)\(pageNote)")
             }
             if let total = po.totalAmount {
                 lines.append("")
@@ -64,7 +66,7 @@ enum POMail {
         }
 
         let photoCount = po.photoFileNames.count
-        let receiptPhotoCount = po.receipts.count
+        let receiptPhotoCount = po.receipts.reduce(0) { $0 + $1.photoFileNames.count }
         lines.append("")
         lines.append("Attached: \(photoCount) request photo(s), \(receiptPhotoCount) receipt photo(s).")
         lines.append("")
@@ -84,8 +86,11 @@ enum POMail {
             }
         }
         for (index, receipt) in po.receipts.enumerated() {
-            if let data = try? Data(contentsOf: PhotoStore.url(fileName: receipt.photoFileName)) {
-                result.append((data, "\(safeNumber)-receipt-\(index + 1).jpg"))
+            for (page, fileName) in receipt.photoFileNames.enumerated() {
+                guard let data = try? Data(contentsOf: PhotoStore.url(fileName: fileName)) else { continue }
+                // Multi-photo receipts get a page suffix so they stay in order.
+                let suffix = receipt.photoFileNames.count > 1 ? "-\(page + 1)" : ""
+                result.append((data, "\(safeNumber)-receipt-\(index + 1)\(suffix).jpg"))
             }
         }
         return result

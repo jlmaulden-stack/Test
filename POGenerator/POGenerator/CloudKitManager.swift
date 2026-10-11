@@ -289,17 +289,22 @@ final class CloudKitManager {
         record["photoAssetNames"] = photoNames
         record["photoAssets"] = photoAssets
 
-        // Receipts: metadata as JSON, photos as parallel id/asset arrays.
+        // Receipts: metadata as JSON, photos as parallel key/asset arrays. A receipt can
+        // hold several photos, so the key is each photo's file name rather than the
+        // receipt id -- the field keeps its old name (and its [String] type) so the
+        // Production schema needs no redeploy.
         if let data = try? JSONEncoder().encode(po.receipts) {
             record["receiptData"] = String(data: data, encoding: .utf8)
         }
-        var receiptIDs: [String] = []
+        var receiptKeys: [String] = []
         var receiptAssets: [CKAsset] = []
-        for receipt in po.receipts where PhotoStore.fileExists(fileName: receipt.photoFileName) {
-            receiptIDs.append(receipt.id)
-            receiptAssets.append(CKAsset(fileURL: PhotoStore.url(fileName: receipt.photoFileName)))
+        for receipt in po.receipts {
+            for fileName in receipt.photoFileNames where PhotoStore.fileExists(fileName: fileName) {
+                receiptKeys.append(fileName)
+                receiptAssets.append(CKAsset(fileURL: PhotoStore.url(fileName: fileName)))
+            }
         }
-        record["receiptAssetIDs"] = receiptIDs
+        record["receiptAssetIDs"] = receiptKeys
         record["receiptAssets"] = receiptAssets
     }
 
@@ -318,13 +323,16 @@ final class CloudKitManager {
            let decoded = try? JSONDecoder().decode([Receipt].self, from: Data(json.utf8)) {
             receipts = decoded
         }
-        let receiptIDs = record["receiptAssetIDs"] as? [String] ?? []
+        // Keys are photo file names; records written by builds before multi-photo
+        // receipts keyed by receipt id instead, so fall back to that receipt's photo.
+        let receiptKeys = record["receiptAssetIDs"] as? [String] ?? []
         let receiptAssets = record["receiptAssets"] as? [CKAsset] ?? []
-        for (receiptID, asset) in zip(receiptIDs, receiptAssets) {
-            if let receipt = receipts.first(where: { $0.id == receiptID }),
-               let fileURL = asset.fileURL,
-               let data = try? Data(contentsOf: fileURL) {
-                PhotoStore.writeIfMissing(data, fileName: receipt.photoFileName)
+        for (key, asset) in zip(receiptKeys, receiptAssets) {
+            guard let fileURL = asset.fileURL, let data = try? Data(contentsOf: fileURL) else { continue }
+            if receipts.contains(where: { $0.photoFileNames.contains(key) }) {
+                PhotoStore.writeIfMissing(data, fileName: key)
+            } else if let legacy = receipts.first(where: { $0.id == key })?.primaryPhotoFileName {
+                PhotoStore.writeIfMissing(data, fileName: legacy)
             }
         }
 

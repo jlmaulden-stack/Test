@@ -7,12 +7,22 @@ struct PhotoViewerView: View {
     @Environment(\.dismiss) private var dismiss
     let fileName: String
     let title: String
-    /// Nil when the photo can't be removed from this context (e.g. a receipt, which is
-    /// deleted along with its amount from the Receipts section instead).
+    /// Nil when the photo can't be removed from this context. Deleting the last photo
+    /// off a receipt takes the receipt with it, which the caller handles.
     var onDelete: (() -> Void)?
 
     @State private var showDeleteConfirmation = false
     @State private var exportPayload: ExportPayload?
+
+    // Zoom/pan state. `committed*` holds the value from the end of the last gesture so
+    // a new pinch or drag continues from there instead of snapping back to 1x.
+    @State private var scale: CGFloat = 1
+    @State private var committedScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var committedOffset: CGSize = .zero
+
+    private static let maxScale: CGFloat = 6
+    private static let doubleTapScale: CGFloat = 3
 
     private var image: UIImage? {
         PhotoStore.loadImage(fileName: fileName)
@@ -24,12 +34,18 @@ struct PhotoViewerView: View {
                 Theme.background.ignoresSafeArea()
 
                 if let image {
-                    // Pinch/pan would be nice, but scaledToFit keeps the whole photo
-                    // visible which is what matters for reading a receipt.
+                    // Pinch to zoom, drag to pan, double-tap to toggle -- reading the
+                    // line items on a receipt photo needs all three.
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
                         .padding()
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        .gesture(panGesture)
+                        .simultaneousGesture(zoomGesture)
+                        .onTapGesture(count: 2) { toggleZoom() }
+                        .clipped()
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "photo")
@@ -43,6 +59,20 @@ struct PhotoViewerView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
                     }
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if scale > 1 {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { resetZoom() }
+                    } label: {
+                        Label("\(zoomLabel) — Reset", systemImage: "arrow.down.right.and.arrow.up.left")
+                            .font(.caption)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.thinMaterial, in: Capsule())
+                    }
+                    .padding(.bottom, 24)
                 }
             }
             .navigationTitle(title)
@@ -90,5 +120,55 @@ struct PhotoViewerView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var zoomLabel: String {
+        String(format: "%.1fx", scale)
+    }
+
+    private var zoomGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                scale = min(max(committedScale * value, 1), Self.maxScale)
+            }
+            .onEnded { _ in
+                committedScale = scale
+                if scale <= 1 {
+                    withAnimation(.easeOut(duration: 0.2)) { resetZoom() }
+                }
+            }
+    }
+
+    /// Panning only applies while zoomed in -- at 1x the whole photo is already visible.
+    private var panGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard scale > 1 else { return }
+                offset = CGSize(
+                    width: committedOffset.width + value.translation.width,
+                    height: committedOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                committedOffset = offset
+            }
+    }
+
+    private func toggleZoom() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            if scale > 1 {
+                resetZoom()
+            } else {
+                scale = Self.doubleTapScale
+                committedScale = scale
+            }
+        }
+    }
+
+    private func resetZoom() {
+        scale = 1
+        committedScale = 1
+        offset = .zero
+        committedOffset = .zero
     }
 }

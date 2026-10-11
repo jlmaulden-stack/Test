@@ -12,10 +12,15 @@ struct PODetailView: View {
 
     @State private var hasAutoPrompted = false
     @State private var notesText: String = ""
-    @State private var showReceiptOptions = false
+    @State private var detailsText: String = ""
+    /// Which attachment slot the camera / library is being opened for. One dialog and
+    /// one pair of pickers serve all of them, so nothing competes to present. The
+    /// target outlives the dialog -- it's still needed when the picker comes back.
+    @State private var photoTarget: PhotoTarget?
+    @State private var showPhotoOptions = false
     @State private var showCameraCapture = false
     @State private var showPhotoLibraryPicker = false
-    @State private var receiptPickerItems: [PhotosPickerItem] = []
+    @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var exportPayload: ExportPayload?
     // Receipts awaiting a required dollar amount, prompted one at a time as uploaded.
     @State private var pendingAmountReceiptIDs: [String] = []
@@ -31,12 +36,39 @@ struct PODetailView: View {
     /// the summary composer opens after the last one instead of fighting it.
     @State private var mailAfterPrompts = false
 
-    /// Identifies which photo the full-screen viewer is showing.
+    /// Identifies which photo the full-screen viewer is showing, and how to remove it.
     private struct PhotoSelection: Identifiable {
         let id: String
         let fileName: String
         let title: String
-        let deletable: Bool
+        /// Nil when this photo can't be deleted from here.
+        let delete: (() -> Void)?
+    }
+
+    /// Where a newly captured or picked photo should go.
+    private enum PhotoTarget: Identifiable, Equatable {
+        /// The PO's own request photos.
+        case request
+        /// A new receipt (each photo picked becomes its own receipt and amount).
+        case newReceipt
+        /// Another page of an existing receipt, covered by the amount already on it.
+        case existingReceipt(id: String)
+
+        var id: String {
+            switch self {
+            case .request: return "request"
+            case .newReceipt: return "new-receipt"
+            case .existingReceipt(let id): return "receipt-\(id)"
+            }
+        }
+
+        var dialogTitle: String {
+            switch self {
+            case .request: return "Add Request Photo"
+            case .newReceipt: return "Add Receipt Photo"
+            case .existingReceipt: return "Add Photo to This Receipt"
+            }
+        }
     }
     // Single alert slot: SwiftUI only honors one .alert per view, so both prompts
     // share this one. Two stacked .alert modifiers silently dropped one of them.
@@ -63,14 +95,16 @@ struct PODetailView: View {
         store.history.first(where: { $0.id == po.id }) ?? po
     }
 
-    /// Camera capture adds a receipt on set; a computed binding avoids an onChange on
+    /// Camera capture files the photo on set; a computed binding avoids an onChange on
     /// UIImage, which isn't Equatable.
     private var cameraBinding: Binding<UIImage?> {
         Binding(get: { nil }, set: { image in
-            if let image, let receiptID = store.addReceipt(image, for: current) {
-                pendingAmountReceiptIDs.append(receiptID)
+            guard let image, let target = photoTarget else { return }
+            attach(image, to: target)
+            if case .newReceipt = target {
                 scheduleNextAmountPrompt()
             }
+            photoTarget = nil
         })
     }
 
@@ -158,45 +192,48 @@ struct PODetailView: View {
             }
             .listRowBackground(Theme.panel)
 
-            if !current.details.isEmpty {
-                Section("Description") {
-                    Text(current.details)
-                }
-                .listRowBackground(Theme.panel)
+            Section("Description") {
+                TextField("List Materials Needed Here", text: $detailsText, axis: .vertical)
+                    .lineLimit(3...10)
+                Text("Editable at any point — changes sync to the whole team.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
             }
+            .listRowBackground(Theme.panel)
 
-            if !current.photoFileNames.isEmpty {
-                Section("Photos") {
+            Section("Photos") {
+                if !current.photoFileNames.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
                             ForEach(current.photoFileNames, id: \.self) { fileName in
-                                if let image = PhotoStore.loadImage(fileName: fileName) {
-                                    Button {
-                                        viewingPhoto = PhotoSelection(
-                                            id: fileName,
-                                            fileName: fileName,
-                                            title: "Request Photo",
-                                            deletable: true
-                                        )
-                                    } label: {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 120, height: 120)
-                                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
+                                photoThumbnail(
+                                    fileName: fileName,
+                                    size: 120,
+                                    title: "Request Photo",
+                                    delete: { store.removePhoto(fileName: fileName, from: current) }
+                                )
                             }
                         }
                         .padding(.vertical, 4)
                     }
-                    Text("Tap a photo to view, share, or delete it.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
                 }
-                .listRowBackground(Theme.panel)
+
+                Button {
+                    requestPhoto(.request)
+                } label: {
+                    Label(
+                        current.photoFileNames.isEmpty ? "Add Photos" : "Add More Photos",
+                        systemImage: "camera"
+                    )
+                }
+
+                Text(current.photoFileNames.isEmpty
+                     ? "Photos can be added at any point in the PO's life."
+                     : "Tap a photo to zoom in, share, or delete it.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
             }
+            .listRowBackground(Theme.panel)
 
             if current.isApproved {
                 Section("Status") {
@@ -215,13 +252,15 @@ struct PODetailView: View {
                     }
                 }
                 .listRowBackground(Theme.panel)
+            }
 
-                Section("Fulfillment Notes") {
-                    TextField("Add notes about fulfillment...", text: $notesText, axis: .vertical)
-                        .lineLimit(3...8)
-                }
-                .listRowBackground(Theme.panel)
+            Section("Fulfillment Notes") {
+                TextField("Add notes about fulfillment...", text: $notesText, axis: .vertical)
+                    .lineLimit(3...8)
+            }
+            .listRowBackground(Theme.panel)
 
+            if current.isApproved {
                 receiptsSection
 
                 if current.status.reportsDelivery {
@@ -267,32 +306,46 @@ struct PODetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             notesText = current.fulfillmentNotes
+            detailsText = current.details
             autoPromptFulfillIfNeeded()
+        }
+        .onDisappear {
+            // Don't leave a just-typed edit sitting in the debounce window.
+            store.flushPendingPushes()
         }
         .onChange(of: notesText) { newValue in
             store.setFulfillmentNotes(newValue, for: current)
         }
-        .confirmationDialog("Add Receipt", isPresented: $showReceiptOptions) {
+        .onChange(of: detailsText) { newValue in
+            store.setDetails(newValue, for: current)
+        }
+        .confirmationDialog(
+            photoTarget?.dialogTitle ?? "Add Photo",
+            isPresented: $showPhotoOptions,
+            titleVisibility: .visible
+        ) {
             if cameraAvailable {
                 Button("Take Photo") { showCameraCapture = true }
             }
             Button("Choose from Library") { showPhotoLibraryPicker = true }
+            Button("Cancel", role: .cancel) { photoTarget = nil }
         }
-        .photosPicker(isPresented: $showPhotoLibraryPicker, selection: $receiptPickerItems, matching: .images)
-        .onChange(of: receiptPickerItems) { newItems in
-            guard !newItems.isEmpty else { return }
+        .photosPicker(isPresented: $showPhotoLibraryPicker, selection: $photoPickerItems, matching: .images)
+        .onChange(of: photoPickerItems) { newItems in
+            guard !newItems.isEmpty, let target = photoTarget else { return }
             Task {
-                var addedAny = false
+                var addedReceipt = false
                 for item in newItems {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data),
-                       let receiptID = store.addReceipt(image, for: current) {
-                        pendingAmountReceiptIDs.append(receiptID)
-                        addedAny = true
+                    guard let data = try? await item.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data)
+                    else { continue }
+                    if attach(image, to: target) && target == .newReceipt {
+                        addedReceipt = true
                     }
                 }
-                receiptPickerItems = []
-                if addedAny {
+                photoPickerItems = []
+                photoTarget = nil
+                if addedReceipt {
                     scheduleNextAmountPrompt()
                 }
             }
@@ -308,9 +361,7 @@ struct PODetailView: View {
             PhotoViewerView(
                 fileName: selection.fileName,
                 title: selection.title,
-                onDelete: selection.deletable
-                    ? { store.removePhoto(fileName: selection.fileName, from: current) }
-                    : nil
+                onDelete: selection.delete
             )
         }
         .sheet(isPresented: $showMailComposer) {
@@ -341,7 +392,7 @@ struct PODetailView: View {
                 Button("Add Receipt Photo") {
                     // Defer so the alert finishes dismissing before the dialog presents.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        showReceiptOptions = true
+                        requestPhoto(.newReceipt)
                     }
                 }
                 Button("Mark \(intended.label) Anyway") {
@@ -398,6 +449,65 @@ struct PODetailView: View {
 
     private var promptPresented: Binding<Bool> {
         Binding(get: { activePrompt != nil }, set: { if !$0 { activePrompt = nil } })
+    }
+
+    /// Opens the camera-or-library dialog for one attachment slot.
+    private func requestPhoto(_ target: PhotoTarget) {
+        photoTarget = target
+        showPhotoOptions = true
+    }
+
+    /// Files a captured or picked photo against its target. Returns false if the save
+    /// failed. New-receipt photos are queued for their required amount prompt.
+    @discardableResult
+    private func attach(_ image: UIImage, to target: PhotoTarget) -> Bool {
+        switch target {
+        case .request:
+            return store.addPhoto(image, to: current) != nil
+        case .newReceipt:
+            guard let receiptID = store.addReceipt(image, for: current) else { return false }
+            pendingAmountReceiptIDs.append(receiptID)
+            return true
+        case .existingReceipt(let receiptID):
+            // Another page of a receipt already carrying an amount -- no prompt.
+            return store.addReceiptPhoto(image, toReceipt: receiptID, for: current) != nil
+        }
+    }
+
+    /// Tappable thumbnail that opens the zoomable viewer, with an optional delete.
+    @ViewBuilder
+    private func photoThumbnail(
+        fileName: String,
+        size: CGFloat,
+        title: String,
+        delete: (() -> Void)?
+    ) -> some View {
+        if let image = PhotoStore.loadImage(fileName: fileName) {
+            Button {
+                viewingPhoto = PhotoSelection(
+                    id: fileName,
+                    fileName: fileName,
+                    title: title,
+                    delete: delete
+                )
+            } label: {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+        } else {
+            // Asset hasn't downloaded to this device yet.
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Theme.steel.opacity(0.25))
+                .frame(width: size, height: size)
+                .overlay {
+                    Image(systemName: "icloud.and.arrow.down")
+                        .foregroundColor(Theme.steel)
+                }
+        }
     }
 
     /// Arriving from History's status menu: honor the delivery status that was picked
@@ -488,22 +598,33 @@ struct PODetailView: View {
     @ViewBuilder
     private var receiptsSection: some View {
         Section {
-            ForEach(current.receipts) { receipt in
-                ReceiptRow(po: current, receipt: receipt) {
-                    viewingPhoto = PhotoSelection(
-                        id: receipt.id,
-                        fileName: receipt.photoFileName,
-                        title: "Receipt",
-                        deletable: false
-                    )
-                }
+            ForEach(Array(current.receipts.enumerated()), id: \.element.id) { index, receipt in
+                ReceiptRow(
+                    po: current,
+                    receipt: receipt,
+                    number: index + 1,
+                    total: current.receipts.count,
+                    thumbnail: { fileName in
+                        photoThumbnail(
+                            fileName: fileName,
+                            size: 150,
+                            title: "Receipt",
+                            delete: { store.removeReceiptPhoto(fileName: fileName, fromReceipt: receipt.id, for: current) }
+                        )
+                    },
+                    onAddPhoto: { requestPhoto(.existingReceipt(id: receipt.id)) }
+                )
             }
 
             Button {
-                showReceiptOptions = true
+                requestPhoto(.newReceipt)
             } label: {
-                Label("Add Receipt Photo", systemImage: "doc.viewfinder")
+                Label("Add Receipt", systemImage: "doc.viewfinder")
             }
+
+            Text("Each photo added here becomes its own receipt with its own amount. For a long receipt or a multi-page invoice, use Add Photo on the receipt itself.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
 
             if !current.receipts.isEmpty {
                 Button {
@@ -528,28 +649,57 @@ struct PODetailView: View {
     }
 }
 
-/// One receipt: photo, its own dollar-amount field, and a remove button. Owns its
-/// amount text state so typing (e.g. a trailing ".") isn't reformatted mid-entry.
-private struct ReceiptRow: View {
+/// One receipt: its photos (several, for a long receipt or a multi-page invoice), the
+/// one dollar amount they add up to, and a remove button. Owns its amount text state so
+/// typing (e.g. a trailing ".") isn't reformatted mid-entry.
+private struct ReceiptRow<Thumbnail: View>: View {
     @EnvironmentObject private var store: POStore
     let po: PurchaseOrder
     let receipt: Receipt
-    var onTapPhoto: () -> Void = {}
+    let number: Int
+    let total: Int
+    /// Supplied by the parent so the photo viewer and its delete flow stay in one place.
+    let thumbnail: (String) -> Thumbnail
+    let onAddPhoto: () -> Void
+
     @State private var amountText: String = ""
     @State private var showDeleteConfirmation = false
     @FocusState private var amountFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let image = PhotoStore.loadImage(fileName: receipt.photoFileName) {
-                Button(action: onTapPhoto) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 200)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+            HStack {
+                Text(total > 1 ? "Receipt \(number) of \(total)" : "Receipt")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                if receipt.photoFileNames.count > 1 {
+                    Text("\(receipt.photoFileNames.count) photos")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(receipt.photoFileNames, id: \.self) { fileName in
+                        thumbnail(fileName)
+                    }
+
+                    Button(action: onAddPhoto) {
+                        VStack(spacing: 6) {
+                            Image(systemName: "plus.viewfinder")
+                                .font(.title2)
+                            Text("Add Photo")
+                                .font(.caption2)
+                        }
+                        .frame(width: 150, height: 150)
+                        .background(Theme.steel.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(Theme.accent)
+                }
+                .padding(.vertical, 2)
             }
 
             HStack {
@@ -588,7 +738,7 @@ private struct ReceiptRow: View {
             }
         }
         .confirmationDialog(
-            "Delete this receipt photo?",
+            receipt.photoFileNames.count > 1 ? "Delete this receipt and its \(receipt.photoFileNames.count) photos?" : "Delete this receipt?",
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible
         ) {
@@ -596,6 +746,8 @@ private struct ReceiptRow: View {
                 store.removeReceipt(receipt, for: po)
             }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The amount goes with it. To remove just one photo, tap that photo and delete it there.")
         }
     }
 

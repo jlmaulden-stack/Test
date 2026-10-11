@@ -4,11 +4,19 @@ import Foundation
 /// after its PO number, so shared files are recognizable (e.g. "0234-2-ACME-receipt-1.jpg")
 /// rather than opaque internal filenames.
 enum ReceiptExporter {
-    /// Temp-file URLs for every receipt on one PO.
+    /// Temp-file URLs for every receipt photo on one PO. A receipt with several photos
+    /// numbers them "-receipt-1-2", so pages stay grouped and in order.
     static func exportURLs(for po: PurchaseOrder) -> [URL] {
         let receipts = po.receipts
-        return receipts.enumerated().compactMap { index, receipt in
-            exportURL(receipt, poNumber: po.poNumber, index: index, total: receipts.count)
+        return receipts.enumerated().flatMap { index, receipt -> [URL] in
+            receipt.photoFileNames.enumerated().compactMap { page, fileName in
+                exportURL(
+                    fileName: fileName,
+                    poNumber: po.poNumber,
+                    label: label(receiptIndex: index, receiptCount: receipts.count,
+                                 page: page, pageCount: receipt.photoFileNames.count)
+                )
+            }
         }
     }
 
@@ -17,14 +25,21 @@ enum ReceiptExporter {
         orders.flatMap { exportURLs(for: $0) }
     }
 
-    private static func exportURL(_ receipt: Receipt, poNumber: String, index: Int, total: Int) -> URL? {
-        guard PhotoStore.fileExists(fileName: receipt.photoFileName) else { return nil }
+    private static func label(receiptIndex: Int, receiptCount: Int, page: Int, pageCount: Int) -> String {
+        var suffix = receiptCount > 1 ? "-receipt-\(receiptIndex + 1)" : "-receipt"
+        if pageCount > 1 {
+            suffix += "-\(page + 1)"
+        }
+        return suffix
+    }
 
-        let source = PhotoStore.url(fileName: receipt.photoFileName)
+    private static func exportURL(fileName: String, poNumber: String, label: String) -> URL? {
+        guard PhotoStore.fileExists(fileName: fileName) else { return nil }
+
+        let source = PhotoStore.url(fileName: fileName)
         let safeName = poNumber.replacingOccurrences(of: "/", with: "-")
-        let suffix = total > 1 ? "-receipt-\(index + 1)" : "-receipt"
         let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(safeName)\(suffix).jpg")
+            .appendingPathComponent("\(safeName)\(label).jpg")
 
         do {
             if FileManager.default.fileExists(atPath: destination.path) {

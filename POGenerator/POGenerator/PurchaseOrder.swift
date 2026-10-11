@@ -8,7 +8,9 @@ struct PurchaseOrder: Identifiable, Hashable, Codable {
     let customerName: String
     var sequence: Int
     let createdAt: Date
-    let details: String
+    /// Editable for the life of the PO -- material lists get revised after the request
+    /// goes in.
+    var details: String
     var photoFileNames: [String]
     let createdByName: String
     var isApproved: Bool

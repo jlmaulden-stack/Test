@@ -12,10 +12,11 @@ enum PhotoStore {
         save(image, fileName: "\(UUID().uuidString).jpg")
     }
 
-    /// Saves a receipt photo under a distinct name keyed to the receipt's id so it
-    /// never collides with submission photos or other receipts.
-    static func saveReceipt(_ image: UIImage, id: String) -> String? {
-        save(image, fileName: "receipt-\(id).jpg")
+    /// Saves one of a receipt's photos. The name carries the receipt's id (handy when
+    /// inspecting the Documents directory) plus a unique suffix, since a receipt can
+    /// hold several photos.
+    static func saveReceiptPhoto(_ image: UIImage, receiptID: String) -> String? {
+        save(image, fileName: "receipt-\(receiptID)-\(UUID().uuidString).jpg")
     }
 
     private static func save(_ image: UIImage, fileName: String) -> String? {
