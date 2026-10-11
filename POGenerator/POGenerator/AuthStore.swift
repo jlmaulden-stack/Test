@@ -27,15 +27,54 @@ final class AuthStore: ObservableObject {
     private let defaults = UserDefaults.standard
     private let accountsKey = "AuthStore.accounts"
     private let currentUserIDKey = "AuthStore.currentUserID"
+    private let knownRemoteIDsKey = "AuthStore.knownRemoteIDs"
+    private let pendingDeletionsKey = "AuthStore.pendingDeletions"
+
+    /// Accounts this device has seen in the cloud at least once. An account in this set
+    /// that is missing from a later fetch was deleted by a manager -- without it, the
+    /// merge in refreshAccounts treated the local copy as "not uploaded yet" and pushed
+    /// it straight back, so deleted users could keep logging in.
+    private var knownRemoteIDs: Set<String> {
+        get { Set(defaults.stringArray(forKey: knownRemoteIDsKey) ?? []) }
+        set { defaults.set(Array(newValue), forKey: knownRemoteIDsKey) }
+    }
+
+    /// Deletions that haven't been confirmed by CloudKit yet (offline, or the delete
+    /// failed). Retried on every refresh, and filtered out of fetches meanwhile.
+    private var pendingDeletions: Set<String> {
+        get { Set(defaults.stringArray(forKey: pendingDeletionsKey) ?? []) }
+        set { defaults.set(Array(newValue), forKey: pendingDeletionsKey) }
+    }
 
     /// Only offer "create the first manager" once a cloud check has confirmed the
     /// team really has no accounts (or the cache already has some).
     var needsSetup: Bool { accounts.isEmpty && hasSyncedOnce }
 
+    /// Usernames held by more than one account. Two devices can each set up a "first
+    /// manager" before either has synced; the roster then carries both, with separate
+    /// passwords. Flagged in the Team list so a manager can delete the spare.
+    var duplicateUsernames: Set<String> {
+        var counts: [String: Int] = [:]
+        for account in accounts {
+            counts[account.username.lowercased(), default: 0] += 1
+        }
+        return Set(counts.filter { $0.value > 1 }.keys)
+    }
+
+    func isDuplicate(_ account: Account) -> Bool {
+        duplicateUsernames.contains(account.username.lowercased())
+    }
+
     init() {
         accounts = Self.loadAccounts(from: defaults, key: accountsKey)
         if !accounts.isEmpty {
             hasSyncedOnce = true
+        }
+        // First run after this build: everything already cached came from the cloud, so
+        // seed the set. Without this, the first refresh would treat a stale account as
+        // "never uploaded" and push it back one last time.
+        if defaults.object(forKey: knownRemoteIDsKey) == nil {
+            defaults.set(accounts.map(\.id), forKey: knownRemoteIDsKey)
         }
         if let id = defaults.string(forKey: currentUserIDKey) {
             currentUser = accounts.first { $0.id == id }
@@ -64,11 +103,33 @@ final class AuthStore: ObservableObject {
         }
 
         do {
-            let remote = try await cloud.fetchAccounts()
+            await retryPendingDeletions()
+
+            let fetched = try await cloud.fetchAccounts()
+            // A delete that hasn't been confirmed yet still shows up in the fetch.
+            let stillPending = pendingDeletions
+            let remote = fetched.filter { !stillPending.contains($0.id) }
             let remoteIDs = Set(remote.map(\.id))
-            let localOnly = accounts.filter { !remoteIDs.contains($0.id) }
+
+            // An empty roster can't be real while this device holds accounts -- the last
+            // manager can't be deleted -- so it means the records never made it up (a
+            // brand new container, or saves that were failing). Re-upload rather than
+            // wiping everyone out.
+            if remote.isEmpty && !accounts.isEmpty {
+                for account in accounts {
+                    pushToCloud(account)
+                }
+                return
+            }
+
+            // Only accounts that have NEVER reached the cloud are stragglers to push.
+            // One that was there and is gone now was deleted, so it goes.
+            let seen = knownRemoteIDs
+            let localOnly = accounts.filter { !remoteIDs.contains($0.id) && !seen.contains($0.id) }
             accounts = remote + localOnly
+            knownRemoteIDs = seen.union(remoteIDs)
             saveAccounts()
+
             // Keep the session pointing at the fresh copy (password may have been
             // reset remotely); drop it if the account was deleted remotely.
             if let id = currentUser?.id {
@@ -84,6 +145,24 @@ final class AuthStore: ObservableObject {
             }
         } catch {
             syncErrorMessage = Self.describe(error)
+        }
+    }
+
+    /// Re-sends deletes that never reached CloudKit. A delete that only happened on one
+    /// device would otherwise come back on the next fetch.
+    private func retryPendingDeletions() async {
+        for id in pendingDeletions {
+            do {
+                try await cloud.deleteAccount(id: id)
+                pendingDeletions.remove(id)
+                knownRemoteIDs.remove(id)
+            } catch let error as CKError where error.code == .unknownItem {
+                // Already gone -- that's the outcome we wanted.
+                pendingDeletions.remove(id)
+                knownRemoteIDs.remove(id)
+            } catch {
+                // Leave it queued; the next refresh tries again.
+            }
         }
     }
 
@@ -122,9 +201,15 @@ final class AuthStore: ObservableObject {
 
     func logIn(username: String, password: String) -> Bool {
         let trimmedUsername = username.trimmingCharacters(in: .whitespaces)
-        guard let account = accounts.first(where: { $0.username.caseInsensitiveCompare(trimmedUsername) == .orderedSame }),
-              PasswordHasher.hash(password: password, salt: account.passwordSalt) == account.passwordHash
-        else {
+        // Check every account with this username, not just the first: duplicates can
+        // exist (two devices both set up a first manager before syncing), and each one
+        // has its own password. Whichever password was typed picks the account.
+        let candidates = accounts.filter {
+            $0.username.caseInsensitiveCompare(trimmedUsername) == .orderedSame
+        }
+        guard let account = candidates.first(where: {
+            PasswordHasher.hash(password: password, salt: $0.passwordSalt) == $0.passwordHash
+        }) else {
             return false
         }
         currentUser = account
@@ -163,11 +248,13 @@ final class AuthStore: ObservableObject {
         if currentUser?.id == account.id {
             logOut()
         }
+        // Queue the deletion before attempting it, so a failure (or a quit mid-flight)
+        // leaves something to retry instead of letting the account come back.
+        pendingDeletions.insert(account.id)
         Task {
-            do {
-                try await cloud.deleteAccount(id: account.id)
-            } catch {
-                syncErrorMessage = "iCloud sync failed: \(Self.describe(error))"
+            await retryPendingDeletions()
+            if pendingDeletions.contains(account.id) {
+                syncErrorMessage = "\(account.username) was removed on this device but iCloud hasn't confirmed it yet. It will retry automatically."
             }
         }
     }
@@ -184,6 +271,9 @@ final class AuthStore: ObservableObject {
             guard let self else { return }
             do {
                 try await self.cloud.save(account)
+                // It's in the cloud now, so a later fetch that doesn't list it means a
+                // manager deleted it -- not that it still needs uploading.
+                self.knownRemoteIDs.insert(account.id)
             } catch {
                 self.syncErrorMessage = "iCloud sync failed: \(Self.describe(error))"
             }

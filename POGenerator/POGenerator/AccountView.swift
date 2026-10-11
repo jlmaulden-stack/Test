@@ -9,6 +9,7 @@ struct AccountView: View {
     @State private var resetPasswordText = ""
     @State private var errorMessage: String?
     @State private var showLogOutConfirmation = false
+    @State private var deleteTarget: Account?
 
     var body: some View {
         NavigationStack {
@@ -29,7 +30,7 @@ struct AccountView: View {
                 }
 
                 if authStore.currentUser?.isManager == true {
-                    Section("Team") {
+                    Section {
                         ForEach(authStore.accounts) { account in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -38,6 +39,15 @@ struct AccountView: View {
                                         Text("Manager")
                                             .font(.footnote)
                                             .foregroundColor(.secondary)
+                                    }
+                                    if account.id == authStore.currentUser?.id {
+                                        Text("Signed in on this device")
+                                            .font(.caption2)
+                                            .foregroundColor(Theme.accent)
+                                    } else if authStore.isDuplicate(account) {
+                                        Text("Duplicate username — swipe to delete")
+                                            .font(.caption2)
+                                            .foregroundColor(.orange)
                                     }
                                 }
                                 Spacer()
@@ -50,11 +60,19 @@ struct AccountView: View {
                             }
                         }
                         .onDelete { indexSet in
-                            for index in indexSet {
-                                authStore.removeAccount(authStore.accounts[index], requestedBy: authStore.currentUser)
-                            }
+                            // Confirm first: a delete now sticks across every device.
+                            deleteTarget = indexSet.compactMap { index in
+                                authStore.accounts.indices.contains(index) ? authStore.accounts[index] : nil
+                            }.first
                         }
                         .listRowBackground(Theme.panel)
+                    } header: {
+                        Text("Team")
+                    } footer: {
+                        if !authStore.duplicateUsernames.isEmpty {
+                            Text("Two accounts share a username. Each has its own password — the one you're signed in with is marked. Delete the other.")
+                                .font(.caption2)
+                        }
                     }
 
                     Section("Add Account") {
@@ -82,6 +100,20 @@ struct AccountView: View {
                     Section {
                         Text(errorMessage)
                             .foregroundColor(.red)
+                            .font(.footnote)
+                    }
+                    .listRowBackground(Theme.panel)
+                }
+
+                if let syncError = authStore.syncErrorMessage {
+                    Section {
+                        Label("iCloud sync problem", systemImage: "exclamationmark.icloud")
+                            .foregroundColor(.red)
+                            .font(.footnote)
+                        Text(syncError)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Button("Dismiss") { authStore.syncErrorMessage = nil }
                             .font(.footnote)
                     }
                     .listRowBackground(Theme.panel)
@@ -115,6 +147,25 @@ struct AccountView: View {
                 }
             } message: { account in
                 Text("Set a new password for \(account.username).")
+            }
+            .confirmationDialog(
+                deleteTarget.map { "Delete \($0.username)?" } ?? "Delete account?",
+                isPresented: Binding(
+                    get: { deleteTarget != nil },
+                    set: { if !$0 { deleteTarget = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: deleteTarget
+            ) { account in
+                Button("Delete Account", role: .destructive) {
+                    authStore.removeAccount(account, requestedBy: authStore.currentUser)
+                    deleteTarget = nil
+                }
+                Button("Cancel", role: .cancel) { deleteTarget = nil }
+            } message: { account in
+                Text(account.id == authStore.currentUser?.id
+                     ? "This is the account you're signed in with — you'll be logged out immediately. They can no longer sign in on any device."
+                     : "\(account.username) can no longer sign in on any device. POs they created stay in History.")
             }
             .confirmationDialog(
                 "Log out of this account?",

@@ -251,7 +251,9 @@ final class CloudKitManager {
 
     func deleteAccount(id: String) async throws {
         try await checkAccountStatus()
-        _ = try await database.deleteRecord(withID: CKRecord.ID(recordName: id))
+        try await withRetry {
+            _ = try await database.deleteRecord(withID: CKRecord.ID(recordName: id))
+        }
     }
 
     // MARK: - Record mapping
