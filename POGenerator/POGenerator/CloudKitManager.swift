@@ -35,6 +35,20 @@ extension CKError {
             return localizedDescription
         }
     }
+
+    /// Failures that mean "try again in a moment" rather than "this won't work".
+    /// These turn up routinely when operations overlap -- a tab switch re-running a
+    /// fetch while a save is in flight -- because CloudKit cancels or throttles the
+    /// pile-up instead of queueing it.
+    var isTransient: Bool {
+        switch code {
+        case .operationCancelled, .requestRateLimited, .serviceUnavailable,
+             .zoneBusy, .networkFailure, .networkUnavailable:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// Syncs PO requests through the app's public CloudKit database so every employee's
@@ -49,6 +63,25 @@ final class CloudKitManager {
     private init() {
         container = CKContainer.default()
         database = container.publicCloudDatabase
+    }
+
+    /// Runs a CloudKit operation, retrying transient failures with a short backoff
+    /// before letting the error reach the UI. Without this the app surfaced a red
+    /// banner for cancellations and rate limits that a manual refresh would have
+    /// cleared anyway -- so this does those refreshes itself.
+    private func withRetry<T>(attempts: Int = 3, _ work: () async throws -> T) async throws -> T {
+        var delay: TimeInterval = 0.4
+        for _ in 1 ..< max(attempts, 1) {
+            do {
+                return try await work()
+            } catch let error as CKError where error.isTransient {
+                let wait = error.retryAfterSeconds ?? delay
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                delay *= 2
+            }
+        }
+        // Last attempt: whatever it throws is what the caller sees.
+        return try await work()
     }
 
     func checkAccountStatus() async throws {
@@ -77,7 +110,7 @@ final class CloudKitManager {
         for attempt in 1...maxAttempts {
             let record: CKRecord
             do {
-                record = try await database.record(for: recordID)
+                record = try await withRetry { try await database.record(for: recordID) }
             } catch let error as CKError where error.code == .unknownItem {
                 record = CKRecord(recordType: "JobCounter", recordID: recordID)
                 record["jobNumber"] = jobNumber
@@ -89,7 +122,7 @@ final class CloudKitManager {
             record["jobNumber"] = jobNumber
 
             do {
-                try await modify(record, savePolicy: .ifServerRecordUnchanged)
+                try await withRetry { try await modify(record, savePolicy: .ifServerRecordUnchanged) }
                 return Int(nextCount)
             } catch let error as CKError where error.code == .serverRecordChanged {
                 if attempt == maxAttempts {
@@ -108,16 +141,18 @@ final class CloudKitManager {
     func save(_ po: PurchaseOrder) async throws {
         try await checkAccountStatus()
 
-        let recordID = CKRecord.ID(recordName: po.id)
-        let record: CKRecord
-        do {
-            record = try await database.record(for: recordID)
-        } catch let error as CKError where error.code == .unknownItem {
-            record = CKRecord(recordType: "PurchaseOrder", recordID: recordID)
-        }
+        try await withRetry {
+            let recordID = CKRecord.ID(recordName: po.id)
+            let record: CKRecord
+            do {
+                record = try await database.record(for: recordID)
+            } catch let error as CKError where error.code == .unknownItem {
+                record = CKRecord(recordType: "PurchaseOrder", recordID: recordID)
+            }
 
-        apply(po, to: record)
-        try await modify(record, savePolicy: .changedKeys)
+            apply(po, to: record)
+            try await modify(record, savePolicy: .changedKeys)
+        }
     }
 
     /// Fetches the most recent POs across the whole team, newest first, materializing
@@ -130,7 +165,9 @@ final class CloudKitManager {
 
         let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
         do {
-            (matchResults, _) = try await database.records(matching: query, resultsLimit: limit)
+            matchResults = try await withRetry {
+                try await database.records(matching: query, resultsLimit: limit).matchResults
+            }
         } catch let error as CKError where error.code == .unknownItem {
             // Record type not created yet (nothing has ever been saved) -- same as empty.
             return []
@@ -170,7 +207,9 @@ final class CloudKitManager {
         let query = CKQuery(recordType: "Account", predicate: NSPredicate(value: true))
         let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
         do {
-            (matchResults, _) = try await database.records(matching: query, resultsLimit: 500)
+            matchResults = try await withRetry {
+                try await database.records(matching: query, resultsLimit: 500).matchResults
+            }
         } catch let error as CKError where error.code == .unknownItem {
             // No Account record type yet -- treat as an empty roster, not a failure.
             return []
@@ -194,18 +233,20 @@ final class CloudKitManager {
     func save(_ account: Account) async throws {
         try await checkAccountStatus()
 
-        let recordID = CKRecord.ID(recordName: account.id)
-        let record: CKRecord
-        do {
-            record = try await database.record(for: recordID)
-        } catch let error as CKError where error.code == .unknownItem {
-            record = CKRecord(recordType: "Account", recordID: recordID)
+        try await withRetry {
+            let recordID = CKRecord.ID(recordName: account.id)
+            let record: CKRecord
+            do {
+                record = try await database.record(for: recordID)
+            } catch let error as CKError where error.code == .unknownItem {
+                record = CKRecord(recordType: "Account", recordID: recordID)
+            }
+            record["username"] = account.username
+            record["passwordHash"] = account.passwordHash
+            record["passwordSalt"] = account.passwordSalt
+            record["isManager"] = Int64(account.isManager ? 1 : 0)
+            try await modify(record, savePolicy: .changedKeys)
         }
-        record["username"] = account.username
-        record["passwordHash"] = account.passwordHash
-        record["passwordSalt"] = account.passwordSalt
-        record["isManager"] = Int64(account.isManager ? 1 : 0)
-        try await modify(record, savePolicy: .changedKeys)
     }
 
     func deleteAccount(id: String) async throws {

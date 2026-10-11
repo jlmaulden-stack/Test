@@ -18,6 +18,18 @@ final class POStore: ObservableObject {
     }
 
     private let cloud = CloudKitManager.shared
+
+    /// The history load currently in flight, if any. `.task` re-fires on tab switches
+    /// and navigation returns, and can overlap pull-to-refresh -- each one used to
+    /// start its own CloudKit query and saves, which CloudKit then cancelled as a
+    /// pile-up. Now every caller awaits the same load.
+    private var historyLoad: Task<Void, Never>?
+
+    /// Tail of the queue of cloud writes. Saves run one at a time for the same reason:
+    /// two status changes in a row, or a push landing mid-refresh, used to cancel each
+    /// other out and surface "the save was interrupted".
+    private var cloudWrites: Task<Void, Never>?
+
     private let defaults = UserDefaults.standard
     private let historyKey = "POStore.history"
     private let countsKey = "POStore.jobCounts"
@@ -230,11 +242,14 @@ final class POStore: ObservableObject {
     /// Uploads the PO to CloudKit in the background. Local state is already saved, so
     /// a failure just surfaces a message; the next successful push or fetch reconciles.
     private func pushToCloud(_ po: PurchaseOrder) {
-        Task {
+        let previous = cloudWrites
+        cloudWrites = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
             do {
-                try await cloud.save(po)
+                try await self.cloud.save(po)
             } catch {
-                errorMessage = "iCloud sync failed: \(Self.describe(error))"
+                self.errorMessage = "iCloud sync failed: \(Self.describe(error))"
             }
         }
     }
@@ -242,6 +257,18 @@ final class POStore: ObservableObject {
     /// Loads history from CloudKit (merging in any local records that haven't reached
     /// the cloud yet); falls back to the on-device cache when iCloud is unreachable.
     func loadHistory() async {
+        // Join the load already running rather than racing it.
+        if let inFlight = historyLoad {
+            await inFlight.value
+            return
+        }
+        let load = Task { await performHistoryLoad() }
+        historyLoad = load
+        await load.value
+        historyLoad = nil
+    }
+
+    private func performHistoryLoad() async {
         isLoadingHistory = true
         errorMessage = nil
         defer { isLoadingHistory = false }
@@ -255,15 +282,10 @@ final class POStore: ObservableObject {
 
             // Retry anything that never reached the cloud (created while iCloud was
             // unreachable or the schema was rejecting saves), so a refresh heals it.
-            // Sequential on purpose: firing these concurrently makes CloudKit cancel
-            // the siblings of any one that fails.
+            // Queued rather than awaited: the list is already up to date, so there's
+            // no reason to hold the spinner while the stragglers upload one by one.
             for po in localOnly {
-                do {
-                    try await cloud.save(po)
-                } catch {
-                    errorMessage = "iCloud sync failed: \(Self.describe(error))"
-                    break
-                }
+                pushToCloud(po)
             }
         } catch {
             errorMessage = Self.describe(error)

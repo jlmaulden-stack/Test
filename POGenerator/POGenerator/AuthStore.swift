@@ -15,6 +15,15 @@ final class AuthStore: ObservableObject {
     @Published var syncErrorMessage: String?
 
     private let cloud = CloudKitManager.shared
+
+    /// The roster refresh currently in flight. Login and the Account tab both refresh
+    /// on appear, so without this they race each other into CloudKit and one gets
+    /// cancelled.
+    private var refresh: Task<Void, Never>?
+
+    /// Tail of the queue of account saves, so they upload one at a time.
+    private var cloudWrites: Task<Void, Never>?
+
     private let defaults = UserDefaults.standard
     private let accountsKey = "AuthStore.accounts"
     private let currentUserIDKey = "AuthStore.currentUserID"
@@ -36,6 +45,17 @@ final class AuthStore: ObservableObject {
     /// Pulls the shared roster from CloudKit, merging in local accounts that haven't
     /// reached the cloud yet. Falls back to the cache when iCloud is unreachable.
     func refreshAccounts() async {
+        if let inFlight = refresh {
+            await inFlight.value
+            return
+        }
+        let task = Task { await performRefresh() }
+        refresh = task
+        await task.value
+        refresh = nil
+    }
+
+    private func performRefresh() async {
         isSyncing = true
         syncErrorMessage = nil
         defer {
@@ -158,11 +178,14 @@ final class AuthStore: ObservableObject {
     }
 
     private func pushToCloud(_ account: Account) {
-        Task {
+        let previous = cloudWrites
+        cloudWrites = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
             do {
-                try await cloud.save(account)
+                try await self.cloud.save(account)
             } catch {
-                syncErrorMessage = "iCloud sync failed: \(Self.describe(error))"
+                self.syncErrorMessage = "iCloud sync failed: \(Self.describe(error))"
             }
         }
     }
