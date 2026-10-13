@@ -17,6 +17,7 @@ struct HistoryView: View {
     @State private var statusFilter: POStatus?
     @State private var showArchived = false
     @State private var exportPayload: ExportPayload?
+    @State private var isPreparingExport = false
     @State private var path: [PORoute] = []
 
     private var hasReceipts: Bool {
@@ -55,7 +56,9 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if store.history.isEmpty && !store.isLoadingHistory {
+                if store.history.isEmpty && store.isLoadingHistory {
+                    loadingState
+                } else if store.history.isEmpty {
                     emptyState
                 } else if displayedHistory.isEmpty {
                     noMatchesState
@@ -79,13 +82,15 @@ struct HistoryView: View {
                     }
                     .scrollContentBackground(.hidden)
                     .background(Theme.background)
-                    .navigationDestination(for: PORoute.self) { route in
-                        PODetailView(po: route.po, deliveryIntentOnAppear: route.deliveryIntent)
-                    }
-                    .refreshable {
-                        await store.loadHistory()
-                    }
                 }
+            }
+            // On the Group, not just the List: the empty, loading, and no-match states
+            // need pull-to-refresh too -- those are exactly when you want it.
+            .refreshable {
+                await store.loadHistory()
+            }
+            .navigationDestination(for: PORoute.self) { route in
+                PODetailView(po: route.po, deliveryIntentOnAppear: route.deliveryIntent)
             }
             .navigationTitle("HISTORY")
             .safeAreaInset(edge: .top) {
@@ -103,17 +108,45 @@ struct HistoryView: View {
                     .padding(12)
                     .background(Theme.panel)
                     .onTapGesture { store.errorMessage = nil }
+                } else if store.isLoadingHistory && !store.history.isEmpty {
+                    // The cached list is already on screen -- say that it's being
+                    // refreshed rather than leaving it looking stale and frozen.
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Syncing with iCloud…")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Theme.panel)
                 }
             }
             .searchable(text: $searchText, prompt: "Customer or job number")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        exportPayload = ExportPayload(urls: ReceiptExporter.exportURLs(forAll: store.history))
+                        isPreparingExport = true
+                        Task {
+                            // History carries metadata only, so pull down any receipt
+                            // photos this device hasn't cached before building the
+                            // export -- otherwise it quietly ships a partial set.
+                            await store.ensureReceiptPhotos(for: store.history)
+                            isPreparingExport = false
+                            let urls = ReceiptExporter.exportURLs(forAll: store.history)
+                            if !urls.isEmpty {
+                                exportPayload = ExportPayload(urls: urls)
+                            }
+                        }
                     } label: {
-                        Label("Export Receipts", systemImage: "square.and.arrow.up")
+                        if isPreparingExport {
+                            ProgressView()
+                        } else {
+                            Label("Export Receipts", systemImage: "square.and.arrow.up")
+                        }
                     }
-                    .disabled(!hasReceipts)
+                    .disabled(!hasReceipts || isPreparingExport)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     filterMenu
@@ -186,8 +219,35 @@ struct HistoryView: View {
         }
     }
 
+    /// Placeholder states live in a ScrollView so pull-to-refresh works on them. A plain
+    /// VStack can't be pulled, which left the page with no way to retry a slow load.
+    private func placeholder<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                content()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 32)
+            .padding(.top, 100)
+        }
+        .background(Theme.background)
+    }
+
+    private var loadingState: some View {
+        placeholder {
+            ProgressView()
+                .controlSize(.large)
+            Text("Loading History")
+                .font(.headline)
+            Text("Fetching purchase orders from iCloud. Pull down to retry if this takes too long.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        placeholder {
             Image(systemName: "shippingbox")
                 .font(.system(size: 40))
                 .foregroundColor(Theme.steel)
@@ -197,14 +257,11 @@ struct HistoryView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.background)
     }
 
     private var noMatchesState: some View {
-        VStack(spacing: 12) {
+        placeholder {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 40))
                 .foregroundColor(Theme.steel)
@@ -214,10 +271,7 @@ struct HistoryView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.background)
     }
 
     private var noMatchesDescription: String {

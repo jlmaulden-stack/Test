@@ -95,6 +95,10 @@ struct PODetailView: View {
         store.history.first(where: { $0.id == po.id }) ?? po
     }
 
+    private var isDownloadingPhotos: Bool {
+        store.downloadingPhotoPOIDs.contains(po.id)
+    }
+
     /// Camera capture files the photo on set; a computed binding avoids an onChange on
     /// UIImage, which isn't Equatable.
     private var cameraBinding: Binding<UIImage?> {
@@ -227,11 +231,20 @@ struct PODetailView: View {
                     )
                 }
 
-                Text(current.photoFileNames.isEmpty
-                     ? "Photos can be added at any point in the PO's life."
-                     : "Tap a photo to zoom in, share, or delete it.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+                if isDownloadingPhotos {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Downloading photos from iCloud…")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Text(current.photoFileNames.isEmpty
+                         ? "Photos can be added at any point in the PO's life."
+                         : "Tap a photo to zoom in, share, or delete it.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
             }
             .listRowBackground(Theme.panel)
 
@@ -277,6 +290,11 @@ struct PODetailView: View {
                         Text("Sends the full PO — details, notes, receipt amounts, and all photos — to \(POMail.recipient).")
                             .font(.footnote)
                             .foregroundColor(.secondary)
+                        if isDownloadingPhotos {
+                            Text("Photos are still downloading — wait for them to finish or the email will go without them.")
+                                .font(.footnote)
+                                .foregroundColor(.orange)
+                        }
                     }
                     .listRowBackground(Theme.panel)
                 }
@@ -308,6 +326,11 @@ struct PODetailView: View {
             notesText = current.fulfillmentNotes
             detailsText = current.details
             autoPromptFulfillIfNeeded()
+        }
+        .task {
+            // History fetches metadata only so the list stays fast; the photos for this
+            // one PO come down now.
+            await store.ensurePhotos(for: current)
         }
         .onDisappear {
             // Don't leave a just-typed edit sitting in the debounce window.

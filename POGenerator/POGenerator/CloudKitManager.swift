@@ -155,8 +155,22 @@ final class CloudKitManager {
         }
     }
 
-    /// Fetches the most recent POs across the whole team, newest first, materializing
-    /// photo/receipt assets into the local Documents cache.
+    /// Every field except the two CKAsset arrays. Asking for assets in the list query
+    /// makes CloudKit download every photo on every PO before History can draw a single
+    /// row -- tens of megabytes for a busy month. The names and receipt metadata still
+    /// come down, so the app knows which photos exist; the files themselves arrive via
+    /// downloadPhotos(for:) when a PO is actually opened.
+    private static let listKeys: [CKRecord.FieldKey] = [
+        "poNumber", "jobNumber", "customerName", "sequence", "createdAt", "details",
+        "createdByName", "isApproved", "approvedByName", "approvedAt", "wasSelfApproved",
+        "declinedByName", "declinedAt", "declineReason",
+        "isArchived", "archivedByName", "archivedAt",
+        "status", "statusUpdatedByName", "statusUpdatedAt", "fulfillmentNotes",
+        "photoAssetNames", "receiptData", "receiptAssetIDs"
+    ]
+
+    /// Fetches the most recent POs across the whole team, newest first. Metadata only --
+    /// photos are fetched per PO on demand.
     func fetchHistory(limit: Int = 200) async throws -> [PurchaseOrder] {
         try await checkAccountStatus()
 
@@ -166,7 +180,11 @@ final class CloudKitManager {
         let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
         do {
             matchResults = try await withRetry {
-                try await database.records(matching: query, resultsLimit: limit).matchResults
+                try await database.records(
+                    matching: query,
+                    desiredKeys: Self.listKeys,
+                    resultsLimit: limit
+                ).matchResults
             }
         } catch let error as CKError where error.code == .unknownItem {
             // Record type not created yet (nothing has ever been saved) -- same as empty.
@@ -177,6 +195,18 @@ final class CloudKitManager {
             guard let record = try? result.get() else { return nil }
             return purchaseOrder(from: record)
         }
+    }
+
+    /// Pulls one PO's photo and receipt assets into the local cache. The list query
+    /// skips assets to stay fast, so this is how photos actually arrive on a device
+    /// that didn't take them.
+    func downloadPhotos(for poID: String) async throws {
+        try await checkAccountStatus()
+        let record = try await withRetry {
+            try await database.record(for: CKRecord.ID(recordName: poID))
+        }
+        // Mapping the record writes any missing assets to disk as a side effect.
+        _ = purchaseOrder(from: record)
     }
 
     /// Registers a subscription so OTHER devices get a push when a new PO request is
@@ -281,15 +311,17 @@ final class CloudKitManager {
         record["statusUpdatedAt"] = po.statusUpdatedAt
         record["fulfillmentNotes"] = po.fulfillmentNotes
 
-        // Submission photos: parallel name/asset arrays, skipping files missing locally.
-        var photoNames: [String] = []
-        var photoAssets: [CKAsset] = []
-        for name in po.photoFileNames where PhotoStore.fileExists(fileName: name) {
-            photoNames.append(name)
-            photoAssets.append(CKAsset(fileURL: PhotoStore.url(fileName: name)))
+        // Submission photos. Only written when this device holds every one of them:
+        // History fetches metadata without assets, so a phone that never opened this PO
+        // has the names but not the files, and writing what it has would blank the
+        // photos for everyone the moment it changed the status. Leaving the keys
+        // untouched means the .changedKeys save policy preserves what's on the server.
+        if po.photoFileNames.allSatisfy({ PhotoStore.fileExists(fileName: $0) }) {
+            record["photoAssetNames"] = po.photoFileNames
+            record["photoAssets"] = po.photoFileNames.map {
+                CKAsset(fileURL: PhotoStore.url(fileName: $0))
+            }
         }
-        record["photoAssetNames"] = photoNames
-        record["photoAssets"] = photoAssets
 
         // Receipts: metadata as JSON, photos as parallel key/asset arrays. A receipt can
         // hold several photos, so the key is each photo's file name rather than the
@@ -298,16 +330,13 @@ final class CloudKitManager {
         if let data = try? JSONEncoder().encode(po.receipts) {
             record["receiptData"] = String(data: data, encoding: .utf8)
         }
-        var receiptKeys: [String] = []
-        var receiptAssets: [CKAsset] = []
-        for receipt in po.receipts {
-            for fileName in receipt.photoFileNames where PhotoStore.fileExists(fileName: fileName) {
-                receiptKeys.append(fileName)
-                receiptAssets.append(CKAsset(fileURL: PhotoStore.url(fileName: fileName)))
+        let receiptPhotos = po.receipts.flatMap(\.photoFileNames)
+        if receiptPhotos.allSatisfy({ PhotoStore.fileExists(fileName: $0) }) {
+            record["receiptAssetIDs"] = receiptPhotos
+            record["receiptAssets"] = receiptPhotos.map {
+                CKAsset(fileURL: PhotoStore.url(fileName: $0))
             }
         }
-        record["receiptAssetIDs"] = receiptKeys
-        record["receiptAssets"] = receiptAssets
     }
 
     private func purchaseOrder(from record: CKRecord) -> PurchaseOrder {

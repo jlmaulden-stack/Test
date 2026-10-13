@@ -12,6 +12,18 @@ final class POStore: ObservableObject {
     @Published var isLoadingHistory = false
     @Published var errorMessage: String?
 
+    /// Bumped when photos land on disk, so views redraw and pick them up.
+    @Published var photoCacheVersion = 0
+    /// POs whose photos are downloading right now.
+    @Published var downloadingPhotoPOIDs: Set<String> = []
+
+    /// Show the cached history immediately instead of an empty screen while CloudKit
+    /// answers. The refresh that follows reconciles it.
+    init() {
+        history = loadHistoryFromDisk().sorted { $0.createdAt > $1.createdAt }
+        updateBadge()
+    }
+
     /// Number of requests still awaiting a decision -- drives the app-icon badge.
     var pendingCount: Int {
         history.filter(\.isPending).count
@@ -321,6 +333,32 @@ final class POStore: ObservableObject {
             } catch {
                 self.errorMessage = "iCloud sync failed: \(Self.describe(error))"
             }
+        }
+    }
+
+    /// Downloads one PO's photos if any are missing from this device. History fetches
+    /// metadata only, so this runs when a PO is opened. Local state is left alone --
+    /// only the image files land -- so an edit that hasn't synced yet can't be clobbered.
+    func ensurePhotos(for po: PurchaseOrder) async {
+        let expected = po.photoFileNames + po.receipts.flatMap(\.photoFileNames)
+        let missing = expected.filter { !PhotoStore.fileExists(fileName: $0) }
+        guard !missing.isEmpty, !downloadingPhotoPOIDs.contains(po.id) else { return }
+
+        downloadingPhotoPOIDs.insert(po.id)
+        defer { downloadingPhotoPOIDs.remove(po.id) }
+        do {
+            try await cloud.downloadPhotos(for: po.id)
+            photoCacheVersion += 1
+        } catch {
+            errorMessage = "Couldn't download photos: \(Self.describe(error))"
+        }
+    }
+
+    /// Downloads receipt photos for every PO that has receipts -- used before a bulk
+    /// export, which would otherwise quietly skip receipts this device never cached.
+    func ensureReceiptPhotos(for orders: [PurchaseOrder]) async {
+        for po in orders where !po.receipts.isEmpty {
+            await ensurePhotos(for: po)
         }
     }
 
